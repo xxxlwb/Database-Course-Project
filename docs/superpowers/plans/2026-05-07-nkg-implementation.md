@@ -3042,4 +3042,1320 @@ git commit -m "feat(backend): documents router (CRUD + auto-chunk + chunks list)
 
 ---
 
-I'll continue with Phases 6.7 onward in the next batch.
+### Task 6.7: Entities router (CRUD + aliases + merge via SP)
+
+**Files:**
+- Create: `backend/app/schemas/entities.py`, `backend/app/routers/entities.py`
+
+- [ ] **Step 1: Schemas**
+
+```python
+# backend/app/schemas/entities.py
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from pydantic import BaseModel
+
+
+class EntityIn(BaseModel):
+    topic_id: int
+    canonical_name: str
+    entity_type: str
+    description: Optional[str] = None
+    attributes: Optional[Dict[str, Any]] = None
+
+
+class EntityUpdate(BaseModel):
+    canonical_name: Optional[str] = None
+    entity_type: Optional[str] = None
+    description: Optional[str] = None
+    attributes: Optional[Dict[str, Any]] = None
+
+
+class EntityOut(BaseModel):
+    id: int
+    topic_id: int
+    canonical_name: str
+    entity_type: str
+    description: Optional[str]
+    mention_count: int
+    created_at: datetime
+
+
+class AliasIn(BaseModel):
+    alias: str
+    source: str = "user"
+    confidence: float = 1.0
+
+
+class MergeIn(BaseModel):
+    keep_id: int
+    merge_id: int
+```
+
+- [ ] **Step 2: Router**
+
+```python
+# backend/app/routers/entities.py
+import json
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db, engine
+from ..deps import get_current_user, CurrentUser
+from ..schemas.entities import EntityIn, EntityUpdate, EntityOut, AliasIn, MergeIn
+
+router = APIRouter(prefix="/api/entities", tags=["entities"])
+
+
+@router.get("", response_model=List[EntityOut])
+def list_entities(topic_id: Optional[int] = Query(None),
+                  q: Optional[str] = Query(None),
+                  entity_type: Optional[str] = Query(None),
+                  db: Connection = Depends(get_db),
+                  u: CurrentUser = Depends(get_current_user)):
+    sql = ("SELECT id, topic_id, canonical_name, entity_type, description, "
+           "mention_count, created_at FROM entities WHERE 1=1")
+    params = {}
+    if topic_id:
+        sql += " AND topic_id=:tid"; params["tid"] = topic_id
+    if q:
+        sql += " AND canonical_name LIKE :q"; params["q"] = f"%{q}%"
+    if entity_type:
+        sql += " AND entity_type=:et"; params["et"] = entity_type
+    sql += " ORDER BY mention_count DESC, id DESC LIMIT 500"
+    rows = db.execute(text(sql), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@router.post("", response_model=EntityOut, status_code=201)
+def create_entity(payload: EntityIn,
+                  db: Connection = Depends(get_db),
+                  u: CurrentUser = Depends(get_current_user)):
+    try:
+        res = db.execute(text(
+            "INSERT INTO entities (topic_id, canonical_name, entity_type, description, attributes) "
+            "VALUES (:t, :n, :ty, :d, :a)"
+        ), {"t": payload.topic_id, "n": payload.canonical_name,
+            "ty": payload.entity_type, "d": payload.description,
+            "a": json.dumps(payload.attributes) if payload.attributes else None})
+    except Exception as e:
+        raise HTTPException(409, f"entity exists or invalid: {e}")
+    return _get(db, res.lastrowid)
+
+
+@router.get("/{eid}", response_model=EntityOut)
+def get_entity(eid: int, db: Connection = Depends(get_db),
+               u: CurrentUser = Depends(get_current_user)):
+    return _get(db, eid)
+
+
+@router.patch("/{eid}", response_model=EntityOut)
+def update_entity(eid: int, payload: EntityUpdate,
+                  db: Connection = Depends(get_db),
+                  u: CurrentUser = Depends(get_current_user)):
+    fields = {k: v for k, v in payload.dict(exclude_none=True).items()}
+    if "attributes" in fields:
+        fields["attributes"] = json.dumps(fields["attributes"])
+    if not fields:
+        return _get(db, eid)
+    sets = ", ".join(f"{k}=:{k}" for k in fields)
+    fields["id"] = eid
+    db.execute(text(f"UPDATE entities SET {sets} WHERE id=:id"), fields)
+    return _get(db, eid)
+
+
+@router.delete("/{eid}", status_code=204)
+def delete_entity(eid: int, db: Connection = Depends(get_db),
+                  u: CurrentUser = Depends(get_current_user)):
+    db.execute(text("DELETE FROM entities WHERE id=:id"), {"id": eid})
+
+
+@router.get("/{eid}/aliases")
+def list_aliases(eid: int, db: Connection = Depends(get_db),
+                 u: CurrentUser = Depends(get_current_user)):
+    rows = db.execute(text(
+        "SELECT id, alias, source, confidence, created_at FROM entity_aliases "
+        "WHERE entity_id=:id ORDER BY id"
+    ), {"id": eid}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@router.post("/{eid}/aliases", status_code=201)
+def add_alias(eid: int, payload: AliasIn,
+              db: Connection = Depends(get_db),
+              u: CurrentUser = Depends(get_current_user)):
+    try:
+        db.execute(text(
+            "INSERT INTO entity_aliases (entity_id, alias, source, confidence) "
+            "VALUES (:e, :a, :s, :c)"
+        ), {"e": eid, "a": payload.alias, "s": payload.source, "c": payload.confidence})
+    except Exception as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
+
+
+@router.post("/merge", status_code=200)
+def merge_entities(payload: MergeIn,
+                   db: Connection = Depends(get_db),
+                   u: CurrentUser = Depends(get_current_user)):
+    raw = engine.raw_connection()
+    try:
+        cur = raw.cursor()
+        cur.callproc("sp_merge_entities", (payload.keep_id, payload.merge_id, u.id))
+        raw.commit()
+        return {"ok": True, "kept": payload.keep_id}
+    except Exception as e:
+        raw.rollback()
+        raise HTTPException(400, f"merge failed: {e}")
+    finally:
+        raw.close()
+
+
+@router.get("/{eid}/neighborhood")
+def neighborhood(eid: int, depth: int = Query(2, ge=1, le=5),
+                 u: CurrentUser = Depends(get_current_user)):
+    raw = engine.raw_connection()
+    try:
+        cur = raw.cursor()
+        cur.execute("CALL sp_get_entity_neighborhood(%s, %s, @cnt)", (eid, depth))
+        rows = cur.fetchall()
+        cur.execute("SELECT @cnt")
+        cnt = cur.fetchone()[0]
+        cur.close()
+        return {"count": cnt,
+                "nodes": [{"entity_id": r[0], "distance": r[1],
+                           "name": r[2], "type": r[3]} for r in rows]}
+    finally:
+        raw.close()
+
+
+def _get(db: Connection, eid: int) -> dict:
+    row = db.execute(text(
+        "SELECT id, topic_id, canonical_name, entity_type, description, "
+        "mention_count, created_at FROM entities WHERE id=:id"
+    ), {"id": eid}).mappings().first()
+    if not row:
+        raise HTTPException(404, "entity not found")
+    return dict(row)
+```
+
+- [ ] **Step 3: Wire**
+
+```python
+# main.py
+from .routers import entities as entities_router
+app.include_router(entities_router.router)
+```
+
+- [ ] **Step 4: Test**
+
+Create `backend/tests/test_entities_api.py`:
+```python
+import pytest
+from httpx import AsyncClient, ASGITransport
+from app.main import app
+
+
+async def _bootstrap(ac):
+    await ac.post("/api/auth/register", json={
+        "username": "ent1", "email": "e@e.com", "password": "secret123"})
+    r = await ac.post("/api/auth/login", json={"username": "ent1", "password": "secret123"})
+    tok = r.json()["access_token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    r = await ac.post("/api/topics", json={"name": "T"}, headers=h)
+    return h, r.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_entity_crud_and_merge(db_engine):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        h, tid = await _bootstrap(ac)
+
+        r1 = await ac.post("/api/entities", json={
+            "topic_id": tid, "canonical_name": "X", "entity_type": "person"}, headers=h)
+        r2 = await ac.post("/api/entities", json={
+            "topic_id": tid, "canonical_name": "Y", "entity_type": "person"}, headers=h)
+        e1, e2 = r1.json()["id"], r2.json()["id"]
+
+        r = await ac.post("/api/entities/merge",
+                          json={"keep_id": e1, "merge_id": e2}, headers=h)
+        assert r.status_code == 200
+
+        r = await ac.get(f"/api/entities/{e2}", headers=h)
+        assert r.status_code == 404
+```
+
+```bash
+cd backend && uv run pytest tests/test_entities_api.py -v
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/schemas/entities.py backend/app/routers/entities.py backend/app/main.py backend/tests/test_entities_api.py
+git commit -m "feat(backend): entities router (CRUD, aliases, merge SP, neighborhood SP)"
+```
+
+---
+
+### Task 6.8: Relationships router (CRUD + graph endpoint)
+
+**Files:**
+- Create: `backend/app/schemas/relationships.py`, `backend/app/routers/relationships.py`, `backend/app/routers/graph.py`
+
+- [ ] **Step 1: Schemas + relationships router**
+
+```python
+# backend/app/schemas/relationships.py
+from typing import Optional
+from datetime import datetime
+from pydantic import BaseModel
+
+
+class RelationshipIn(BaseModel):
+    topic_id: int
+    source_entity_id: int
+    target_entity_id: int
+    relation_type: str
+    description: Optional[str] = None
+    weight: float = 1.0
+
+
+class RelationshipOut(BaseModel):
+    id: int
+    topic_id: int
+    source_entity_id: int
+    target_entity_id: int
+    relation_type: str
+    description: Optional[str]
+    weight: float
+    created_at: datetime
+```
+
+```python
+# backend/app/routers/relationships.py
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+from ..schemas.relationships import RelationshipIn, RelationshipOut
+
+router = APIRouter(prefix="/api/relationships", tags=["relationships"])
+
+
+@router.get("", response_model=List[RelationshipOut])
+def list_rels(topic_id: Optional[int] = Query(None),
+              db: Connection = Depends(get_db),
+              u: CurrentUser = Depends(get_current_user)):
+    sql = ("SELECT id, topic_id, source_entity_id, target_entity_id, relation_type, "
+           "description, weight, created_at FROM relationships")
+    params = {}
+    if topic_id:
+        sql += " WHERE topic_id=:t"; params["t"] = topic_id
+    sql += " ORDER BY id DESC LIMIT 500"
+    rows = db.execute(text(sql), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@router.post("", response_model=RelationshipOut, status_code=201)
+def create_rel(payload: RelationshipIn,
+               db: Connection = Depends(get_db),
+               u: CurrentUser = Depends(get_current_user)):
+    try:
+        res = db.execute(text(
+            "INSERT INTO relationships (topic_id, source_entity_id, target_entity_id, "
+            "relation_type, description, weight) "
+            "VALUES (:t, :s, :d, :rt, :ds, :w)"
+        ), {"t": payload.topic_id, "s": payload.source_entity_id,
+            "d": payload.target_entity_id, "rt": payload.relation_type,
+            "ds": payload.description, "w": payload.weight})
+    except Exception as e:
+        raise HTTPException(400, f"insert failed (cross-topic / duplicate / self-loop?): {e}")
+    row = db.execute(text(
+        "SELECT id, topic_id, source_entity_id, target_entity_id, relation_type, "
+        "description, weight, created_at FROM relationships WHERE id=:id"
+    ), {"id": res.lastrowid}).mappings().first()
+    return dict(row)
+
+
+@router.delete("/{rid}", status_code=204)
+def delete_rel(rid: int, db: Connection = Depends(get_db),
+               u: CurrentUser = Depends(get_current_user)):
+    db.execute(text("DELETE FROM relationships WHERE id=:id"), {"id": rid})
+```
+
+- [ ] **Step 2: Graph endpoint (separate router for clarity)**
+
+```python
+# backend/app/routers/graph.py
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+
+router = APIRouter(prefix="/api/topics", tags=["graph"])
+
+
+@router.get("/{topic_id}/graph")
+def get_graph(topic_id: int,
+              limit: int = Query(500, le=2000),
+              db: Connection = Depends(get_db),
+              u: CurrentUser = Depends(get_current_user)):
+    nodes = db.execute(text(
+        "SELECT id, canonical_name, entity_type, mention_count "
+        "FROM entities WHERE topic_id=:t ORDER BY mention_count DESC LIMIT :lim"
+    ), {"t": topic_id, "lim": limit}).mappings().all()
+
+    node_ids = {n["id"] for n in nodes}
+    if not node_ids:
+        return {"nodes": [], "edges": []}
+
+    edges = db.execute(text(
+        "SELECT id, source_entity_id, target_entity_id, relation_type, weight "
+        "FROM relationships WHERE topic_id=:t LIMIT :lim"
+    ), {"t": topic_id, "lim": limit}).mappings().all()
+
+    return {
+        "nodes": [{"id": n["id"], "name": n["canonical_name"],
+                   "type": n["entity_type"], "value": n["mention_count"]}
+                  for n in nodes],
+        "edges": [{"id": e["id"], "source": e["source_entity_id"],
+                   "target": e["target_entity_id"], "label": e["relation_type"],
+                   "weight": float(e["weight"])} for e in edges
+                  if e["source_entity_id"] in node_ids and e["target_entity_id"] in node_ids],
+    }
+```
+
+- [ ] **Step 3: Wire**
+
+```python
+# main.py
+from .routers import relationships as rel_router
+from .routers import graph as graph_router
+app.include_router(rel_router.router)
+app.include_router(graph_router.router)
+```
+
+- [ ] **Step 4: Smoke test**
+
+```bash
+cd backend && uv run pytest tests/ -v
+```
+
+All previous tests should still pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/schemas/relationships.py backend/app/routers/relationships.py backend/app/routers/graph.py backend/app/main.py
+git commit -m "feat(backend): relationships router + topic graph endpoint"
+```
+
+---
+
+### Task 6.9: Jobs + audit + admin routers
+
+**Files:**
+- Create: `backend/app/routers/jobs.py`, `backend/app/routers/audit.py`, `backend/app/routers/admin.py`
+
+- [ ] **Step 1: jobs.py**
+
+```python
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+
+router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
+
+@router.get("")
+def list_jobs(topic_id: Optional[int] = Query(None),
+              status: Optional[str] = Query(None),
+              db: Connection = Depends(get_db),
+              u: CurrentUser = Depends(get_current_user)):
+    sql = ("SELECT id, document_id, topic_id, job_type, status, progress, "
+           "result, error_message, created_at, completed_at FROM extraction_jobs WHERE 1=1")
+    p = {}
+    if topic_id:
+        sql += " AND topic_id=:t"; p["t"] = topic_id
+    if status:
+        sql += " AND status=:s"; p["s"] = status
+    sql += " ORDER BY id DESC LIMIT 200"
+    rows = db.execute(text(sql), p).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@router.get("/{jid}")
+def get_job(jid: int, db: Connection = Depends(get_db),
+            u: CurrentUser = Depends(get_current_user)):
+    row = db.execute(text(
+        "SELECT id, document_id, topic_id, job_type, status, progress, "
+        "result, error_message, started_at, completed_at, created_at "
+        "FROM extraction_jobs WHERE id=:id"
+    ), {"id": jid}).mappings().first()
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(404)
+    return dict(row)
+```
+
+- [ ] **Step 2: audit.py**
+
+```python
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+
+router = APIRouter(prefix="/api/audit-logs", tags=["audit"])
+
+
+@router.get("")
+def list_logs(user_id: Optional[int] = Query(None),
+              action: Optional[str] = Query(None),
+              limit: int = Query(100, le=500),
+              db: Connection = Depends(get_db),
+              u: CurrentUser = Depends(get_current_user)):
+    sql = ("SELECT id, user_id, action, entity_type, entity_id, "
+           "before_value, after_value, ip_address, created_at FROM audit_logs WHERE 1=1")
+    p = {}
+    if user_id:
+        sql += " AND user_id=:u"; p["u"] = user_id
+    if action:
+        sql += " AND action=:a"; p["a"] = action
+    sql += " ORDER BY id DESC LIMIT :lim"; p["lim"] = limit
+    rows = db.execute(text(sql), p).mappings().all()
+    return [dict(r) for r in rows]
+```
+
+- [ ] **Step 3: admin.py (calls cursor SPs)**
+
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from ..db import engine
+from ..deps import require_role
+
+router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+@router.post("/recompute-mentions")
+def recompute_mentions(u=Depends(require_role("admin"))):
+    raw = engine.raw_connection()
+    try:
+        cur = raw.cursor()
+        cur.callproc("sp_recompute_entity_mentions", ())
+        raw.commit()
+        return {"ok": True}
+    finally:
+        raw.close()
+
+
+@router.post("/archive-inactive-topics")
+def archive_inactive(days: int = 30, u=Depends(require_role("admin"))):
+    raw = engine.raw_connection()
+    try:
+        cur = raw.cursor()
+        cur.execute("CALL sp_archive_inactive_topics(%s, @cnt)", (days,))
+        cur.execute("SELECT @cnt")
+        cnt = cur.fetchone()[0]
+        raw.commit()
+        return {"ok": True, "archived": cnt}
+    finally:
+        raw.close()
+
+
+@router.post("/propagate-rename")
+def propagate_rename(topic_id: int, pattern: str, new_name: str,
+                     u=Depends(require_role("admin"))):
+    raw = engine.raw_connection()
+    try:
+        cur = raw.cursor()
+        cur.callproc("sp_propagate_entity_rename", (topic_id, pattern, new_name))
+        raw.commit()
+        return {"ok": True}
+    finally:
+        raw.close()
+```
+
+- [ ] **Step 4: Wire**
+
+```python
+# main.py
+from .routers import jobs as jobs_router, audit as audit_router, admin as admin_router
+app.include_router(jobs_router.router)
+app.include_router(audit_router.router)
+app.include_router(admin_router.router)
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/routers/jobs.py backend/app/routers/audit.py backend/app/routers/admin.py backend/app/main.py
+git commit -m "feat(backend): jobs/audit/admin routers (admin SPs wired)"
+```
+
+---
+
+## Phase 7 — LLM Integration & Extraction Services
+
+### Task 7.1: MiniMax client with mock fallback
+
+**Files:**
+- Create: `backend/app/llm.py`
+
+- [ ] **Step 1: Write file**
+
+```python
+import json
+import logging
+from typing import Optional, List, Dict, Any
+from openai import OpenAI
+from .config import settings
+
+log = logging.getLogger(__name__)
+
+
+class LLMClient:
+    def __init__(self):
+        self.use_mock = settings.llm_mock or not settings.minimax_api_key
+        if not self.use_mock:
+            self.client = OpenAI(
+                api_key=settings.minimax_api_key,
+                base_url=settings.minimax_base_url,
+            )
+
+    def chat_json(self, system: str, user: str, mock_fallback: dict) -> dict:
+        """Return JSON dict from LLM; on mock or failure, return mock_fallback."""
+        if self.use_mock:
+            log.info("LLM mock mode")
+            return mock_fallback
+        try:
+            resp = self.client.chat.completions.create(
+                model=settings.minimax_model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+            txt = resp.choices[0].message.content or "{}"
+            return json.loads(txt)
+        except Exception as e:
+            log.warning(f"LLM call failed, using mock: {e}")
+            return mock_fallback
+
+
+llm = LLMClient()
+
+
+# Helpers ----------------------------------------------------------
+
+COG_MAP_SYSTEM = """你是知识抽取助手。给定一段文档文本，输出 JSON：
+{
+  "summary": "<200字摘要>",
+  "key_entities": [{"name": "...", "type": "person|project|task|concept|decision|event|place|other"}],
+  "themes": ["主题词", ...],
+  "timeline": [{"time": "...", "event": "..."}],
+  "structural_patterns": ["..."]
+}
+"""
+
+EXTRACT_SYSTEM = """你是知识抽取助手。给定一段文本和已知实体清单，抽取 JSON：
+{
+  "entities": [{"name": "...", "type": "person|project|task|concept|decision|event|place|other"}],
+  "relationships": [{"source": "...", "target": "...", "type": "...", "description": "..."}]
+}
+只抽取文本中明确提到的实体和关系，不要编造。
+"""
+
+
+def gen_cognitive_map(content: str) -> Dict[str, Any]:
+    return llm.chat_json(
+        COG_MAP_SYSTEM,
+        f"文档内容：\n{content[:3000]}",
+        mock_fallback={
+            "summary": content[:200],
+            "key_entities": [],
+            "themes": [],
+            "timeline": [],
+            "structural_patterns": [],
+        },
+    )
+
+
+def gen_extraction(content: str, known_entities: List[str]) -> Dict[str, Any]:
+    return llm.chat_json(
+        EXTRACT_SYSTEM,
+        f"已知实体：{json.dumps(known_entities, ensure_ascii=False)}\n\n文本：\n{content[:3000]}",
+        mock_fallback={"entities": [], "relationships": []},
+    )
+```
+
+- [ ] **Step 2: Smoke test (mock mode)**
+
+```bash
+cd backend && uv run python -c "
+from app.llm import gen_cognitive_map
+print(gen_cognitive_map('张三去了上海'))
+"
+```
+
+Expected: dict with `summary` key (mock content).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add backend/app/llm.py
+git commit -m "feat(backend): MiniMax LLM client (OpenAI-compatible) + mock fallback"
+```
+
+---
+
+### Task 7.2: Cognitive map service + endpoint
+
+**Files:**
+- Create: `backend/app/services/cognitive.py`, `backend/app/routers/cognitive.py`
+
+- [ ] **Step 1: Service**
+
+```python
+# backend/app/services/cognitive.py
+import json
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..llm import gen_cognitive_map
+
+
+def generate_for_document(db: Connection, doc_id: int) -> dict:
+    row = db.execute(text("SELECT content FROM documents WHERE id=:id"),
+                     {"id": doc_id}).first()
+    if not row or not row[0]:
+        raise ValueError("document not found or empty")
+
+    cog = gen_cognitive_map(row[0])
+
+    # upsert
+    existing = db.execute(text(
+        "SELECT id, version FROM cognitive_maps WHERE document_id=:id"
+    ), {"id": doc_id}).first()
+
+    if existing:
+        db.execute(text(
+            "UPDATE cognitive_maps SET summary=:s, key_entities=:k, themes=:t, "
+            "timeline=:tl, structural_patterns=:sp, version=version+1, "
+            "generated_by='llm' WHERE id=:cid"
+        ), {"s": cog.get("summary"),
+            "k": json.dumps(cog.get("key_entities", []), ensure_ascii=False),
+            "t": json.dumps(cog.get("themes", []), ensure_ascii=False),
+            "tl": json.dumps(cog.get("timeline", []), ensure_ascii=False),
+            "sp": json.dumps(cog.get("structural_patterns", []), ensure_ascii=False),
+            "cid": existing[0]})
+    else:
+        db.execute(text(
+            "INSERT INTO cognitive_maps (document_id, summary, key_entities, themes, "
+            "timeline, structural_patterns, generated_by) "
+            "VALUES (:d, :s, :k, :t, :tl, :sp, 'llm')"
+        ), {"d": doc_id,
+            "s": cog.get("summary"),
+            "k": json.dumps(cog.get("key_entities", []), ensure_ascii=False),
+            "t": json.dumps(cog.get("themes", []), ensure_ascii=False),
+            "tl": json.dumps(cog.get("timeline", []), ensure_ascii=False),
+            "sp": json.dumps(cog.get("structural_patterns", []), ensure_ascii=False)})
+
+    return cog
+```
+
+- [ ] **Step 2: Router**
+
+```python
+# backend/app/routers/cognitive.py
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+from ..services.cognitive import generate_for_document
+
+router = APIRouter(prefix="/api/documents", tags=["cognitive"])
+
+
+@router.post("/{doc_id}/cognitive-map")
+def gen(doc_id: int, db: Connection = Depends(get_db),
+        u: CurrentUser = Depends(get_current_user)):
+    try:
+        return generate_for_document(db, doc_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.get("/{doc_id}/cognitive-map")
+def get(doc_id: int, db: Connection = Depends(get_db),
+        u: CurrentUser = Depends(get_current_user)):
+    row = db.execute(text(
+        "SELECT id, summary, key_entities, themes, timeline, structural_patterns, "
+        "version, generated_at FROM cognitive_maps WHERE document_id=:id"
+    ), {"id": doc_id}).mappings().first()
+    if not row:
+        raise HTTPException(404, "no cognitive map")
+    return dict(row)
+```
+
+- [ ] **Step 3: Wire + commit**
+
+```python
+# main.py
+from .routers import cognitive as cog_router
+app.include_router(cog_router.router)
+```
+
+```bash
+git add backend/app/services/cognitive.py backend/app/routers/cognitive.py backend/app/main.py
+git commit -m "feat(backend): cognitive map service + endpoints"
+```
+
+---
+
+### Task 7.3: Blueprint service + endpoint
+
+**Files:**
+- Create: `backend/app/services/blueprint.py`, `backend/app/routers/blueprint.py`
+
+- [ ] **Step 1: Service**
+
+```python
+# backend/app/services/blueprint.py
+import json
+import hashlib
+from typing import List
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+
+
+def regenerate_for_topic(db: Connection, topic_id: int) -> dict:
+    """Aggregate cognitive maps in topic into a blueprint (no LLM call needed —
+    pure aggregation; LLM optional refinement future work)."""
+    rows = db.execute(text("""
+        SELECT cm.key_entities, cm.themes, cm.timeline
+          FROM cognitive_maps cm
+          JOIN documents d ON d.id = cm.document_id
+         WHERE d.topic_id = :t
+    """), {"t": topic_id}).all()
+
+    if not rows:
+        raise ValueError("no cognitive maps for topic")
+
+    canonical_entities: dict = {}
+    key_patterns = set()
+    global_timeline: list = []
+    for ke_json, themes_json, tl_json in rows:
+        for e in (json.loads(ke_json) if ke_json else []):
+            name = e.get("name")
+            if name:
+                canonical_entities.setdefault(name, {"name": name, "type": e.get("type", "other"), "freq": 0})
+                canonical_entities[name]["freq"] += 1
+        for t in (json.loads(themes_json) if themes_json else []):
+            key_patterns.add(t)
+        for ev in (json.loads(tl_json) if tl_json else []):
+            global_timeline.append(ev)
+
+    payload = {
+        "canonical_entities": list(canonical_entities.values()),
+        "key_patterns": sorted(key_patterns),
+        "global_timeline": global_timeline,
+    }
+    sd_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    existing = db.execute(text("SELECT id FROM analysis_blueprints WHERE topic_id=:t"),
+                          {"t": topic_id}).first()
+    if existing:
+        db.execute(text("""
+            UPDATE analysis_blueprints
+               SET canonical_entities=:ce, key_patterns=:kp, global_timeline=:gt,
+                   contributing_doc_count=:dc, source_data_hash=:sh,
+                   status='ready', version=version+1, generated_at=NOW()
+             WHERE id=:id
+        """), {"ce": json.dumps(payload["canonical_entities"], ensure_ascii=False),
+               "kp": json.dumps(payload["key_patterns"], ensure_ascii=False),
+               "gt": json.dumps(payload["global_timeline"], ensure_ascii=False),
+               "dc": len(rows), "sh": sd_hash, "id": existing[0]})
+    else:
+        db.execute(text("""
+            INSERT INTO analysis_blueprints (topic_id, canonical_entities, key_patterns,
+                global_timeline, contributing_doc_count, source_data_hash, status, generated_at)
+            VALUES (:t, :ce, :kp, :gt, :dc, :sh, 'ready', NOW())
+        """), {"t": topic_id,
+               "ce": json.dumps(payload["canonical_entities"], ensure_ascii=False),
+               "kp": json.dumps(payload["key_patterns"], ensure_ascii=False),
+               "gt": json.dumps(payload["global_timeline"], ensure_ascii=False),
+               "dc": len(rows), "sh": sd_hash})
+
+    db.execute(text("UPDATE topics SET blueprint_status='ready' WHERE id=:t"),
+               {"t": topic_id})
+
+    return payload
+```
+
+- [ ] **Step 2: Router**
+
+```python
+# backend/app/routers/blueprint.py
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+from ..services.blueprint import regenerate_for_topic
+
+router = APIRouter(prefix="/api/topics", tags=["blueprint"])
+
+
+@router.post("/{topic_id}/blueprint")
+def regen(topic_id: int, db: Connection = Depends(get_db),
+          u: CurrentUser = Depends(get_current_user)):
+    try:
+        return regenerate_for_topic(db, topic_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/{topic_id}/blueprint")
+def get(topic_id: int, db: Connection = Depends(get_db),
+        u: CurrentUser = Depends(get_current_user)):
+    row = db.execute(text(
+        "SELECT id, canonical_entities, key_patterns, global_timeline, "
+        "contributing_doc_count, status, version, generated_at "
+        "FROM analysis_blueprints WHERE topic_id=:t"
+    ), {"t": topic_id}).mappings().first()
+    if not row:
+        raise HTTPException(404, "no blueprint")
+    return dict(row)
+```
+
+- [ ] **Step 3: Wire + commit**
+
+```python
+# main.py
+from .routers import blueprint as bp_router
+app.include_router(bp_router.router)
+```
+
+```bash
+git add backend/app/services/blueprint.py backend/app/routers/blueprint.py backend/app/main.py
+git commit -m "feat(backend): blueprint aggregation service + endpoints"
+```
+
+---
+
+### Task 7.4: Extraction service + endpoint
+
+**Files:**
+- Create: `backend/app/services/extract.py`, `backend/app/routers/extract.py`
+
+- [ ] **Step 1: Service**
+
+```python
+# backend/app/services/extract.py
+import json
+from typing import Optional
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..llm import gen_extraction
+
+
+def extract_for_topic(db: Connection, topic_id: int, doc_id: Optional[int] = None) -> dict:
+    """Run LLM extraction on chunks; INSERT IGNORE entities/rels/mappings."""
+    sql = ("SELECT dc.id, dc.content FROM document_chunks dc "
+           "JOIN documents d ON d.id = dc.document_id WHERE d.topic_id=:t")
+    p = {"t": topic_id}
+    if doc_id:
+        sql += " AND d.id=:d"; p["d"] = doc_id
+
+    chunks = db.execute(text(sql), p).all()
+    if not chunks:
+        raise ValueError("no chunks for topic")
+
+    known = [r[0] for r in db.execute(text(
+        "SELECT canonical_name FROM entities WHERE topic_id=:t LIMIT 200"
+    ), {"t": topic_id}).all()]
+
+    new_ent = 0; new_rel = 0; new_map = 0
+    for chunk_id, content in chunks:
+        result = gen_extraction(content, known)
+        for e in result.get("entities", []):
+            name, etype = e.get("name"), e.get("type", "other")
+            if not name:
+                continue
+            try:
+                db.execute(text(
+                    "INSERT IGNORE INTO entities (topic_id, canonical_name, entity_type) "
+                    "VALUES (:t, :n, :ty)"), {"t": topic_id, "n": name, "ty": etype})
+                eid = db.execute(text(
+                    "SELECT id FROM entities WHERE topic_id=:t AND canonical_name=:n AND entity_type=:ty"
+                ), {"t": topic_id, "n": name, "ty": etype}).scalar()
+                if eid:
+                    res = db.execute(text(
+                        "INSERT IGNORE INTO chunk_entity_mapping (chunk_id, entity_id, occurrences) "
+                        "VALUES (:c, :e, 1)"), {"c": chunk_id, "e": eid})
+                    if res.rowcount > 0:
+                        new_map += 1
+                    new_ent += 1
+            except Exception:
+                pass
+
+        for r in result.get("relationships", []):
+            src, dst, rtype = r.get("source"), r.get("target"), r.get("type")
+            if not (src and dst and rtype):
+                continue
+            sid = db.execute(text(
+                "SELECT id FROM entities WHERE topic_id=:t AND canonical_name=:n LIMIT 1"
+            ), {"t": topic_id, "n": src}).scalar()
+            tid = db.execute(text(
+                "SELECT id FROM entities WHERE topic_id=:t AND canonical_name=:n LIMIT 1"
+            ), {"t": topic_id, "n": dst}).scalar()
+            if sid and tid and sid != tid:
+                try:
+                    db.execute(text(
+                        "INSERT IGNORE INTO relationships (topic_id, source_entity_id, "
+                        "target_entity_id, relation_type, description) "
+                        "VALUES (:t, :s, :d, :rt, :desc)"
+                    ), {"t": topic_id, "s": sid, "d": tid, "rt": rtype,
+                        "desc": r.get("description")})
+                    new_rel += 1
+                except Exception:
+                    pass
+
+    return {"new_entities": new_ent, "new_relationships": new_rel, "new_mappings": new_map}
+```
+
+- [ ] **Step 2: Router**
+
+```python
+# backend/app/routers/extract.py
+from typing import Optional
+from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+from ..services.extract import extract_for_topic
+
+router = APIRouter(prefix="/api/topics", tags=["extract"])
+
+
+@router.post("/{topic_id}/extract")
+def extract(topic_id: int, doc_id: Optional[int] = Query(None),
+            db: Connection = Depends(get_db),
+            u: CurrentUser = Depends(get_current_user)):
+    try:
+        return extract_for_topic(db, topic_id, doc_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+```
+
+- [ ] **Step 3: Wire + commit**
+
+```python
+# main.py
+from .routers import extract as extract_router
+app.include_router(extract_router.router)
+```
+
+```bash
+git add backend/app/services/extract.py backend/app/routers/extract.py backend/app/main.py
+git commit -m "feat(backend): LLM-driven entity/relation extraction service + endpoint"
+```
+
+---
+
+## Phase 8 — SQL Console Backend
+
+### Task 8.1: SQL parser + safety
+
+**Files:**
+- Create: `backend/app/services/sql_console.py`
+
+- [ ] **Step 1: Write file**
+
+```python
+# backend/app/services/sql_console.py
+import re
+import time
+from typing import Any, Dict, List
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+# Restrict to single-statement; multi-statement (semicolon-joined) rejected
+_SINGLE_STMT = re.compile(r";\s*\S")
+
+
+def classify(sql: str) -> str:
+    s = sql.strip().upper()
+    if s.startswith("EXPLAIN"):
+        return "explain"
+    if s.startswith("SELECT") or s.startswith("SHOW") or s.startswith("DESC"):
+        return "read"
+    if s.startswith(("INSERT", "UPDATE", "DELETE", "REPLACE")):
+        return "dml"
+    if s.startswith(("CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME")):
+        return "ddl"
+    if s.startswith("CALL"):
+        return "call"
+    if s in ("BEGIN", "START TRANSACTION", "COMMIT", "ROLLBACK"):
+        return "txn"
+    return "other"
+
+
+def validate(sql: str):
+    """Raise ValueError on multi-statement SQL."""
+    if not sql.strip():
+        raise ValueError("empty SQL")
+    if _SINGLE_STMT.search(sql):
+        raise ValueError("multi-statement SQL not allowed; submit one statement at a time")
+
+
+def execute_one(engine: Engine, sql: str, max_rows: int = 1000) -> Dict[str, Any]:
+    """Run single SQL on a fresh connection; return structured result."""
+    validate(sql)
+    kind = classify(sql)
+    started = time.perf_counter()
+    raw = engine.raw_connection()
+    try:
+        cur = raw.cursor()
+        cur.execute("SET STATEMENT max_statement_time=15 FOR " + sql) \
+            if kind in ("read", "explain") else cur.execute(sql)
+
+        out: Dict[str, Any] = {"kind": kind, "elapsed_ms": 0}
+
+        if kind in ("read", "explain", "call"):
+            cols = [d[0] for d in (cur.description or [])]
+            rows = cur.fetchmany(max_rows)
+            out["columns"] = cols
+            out["rows"] = [list(r) for r in rows]
+            out["row_count"] = len(rows)
+        elif kind in ("dml", "ddl"):
+            raw.commit()
+            out["affected_rows"] = cur.rowcount
+        elif kind == "txn":
+            raw.commit()
+
+        out["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
+        cur.close()
+        return out
+    except Exception:
+        raw.rollback()
+        raise
+    finally:
+        raw.close()
+```
+
+- [ ] **Step 2: Test**
+
+Create `backend/tests/test_sql_console.py`:
+```python
+import pytest
+from app.services.sql_console import execute_one, validate
+
+
+def test_validate_rejects_multi():
+    with pytest.raises(ValueError):
+        validate("SELECT 1; SELECT 2")
+
+
+def test_select(db_engine):
+    out = execute_one(db_engine, "SELECT 1 AS x")
+    assert out["kind"] == "read"
+    assert out["rows"] == [[1]]
+
+
+def test_show_tables(db_engine):
+    out = execute_one(db_engine, "SHOW TABLES")
+    assert out["row_count"] >= 14
+```
+
+```bash
+cd backend && uv run pytest tests/test_sql_console.py -v
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add backend/app/services/sql_console.py backend/tests/test_sql_console.py
+git commit -m "feat(backend): SQL console executor service + safety validator"
+```
+
+---
+
+### Task 8.2: SQL console router
+
+**Files:**
+- Create: `backend/app/routers/dev.py`, `backend/app/schemas/dev.py`
+
+- [ ] **Step 1: Schemas**
+
+```python
+# backend/app/schemas/dev.py
+from pydantic import BaseModel
+
+
+class SqlIn(BaseModel):
+    sql: str
+    max_rows: int = 1000
+```
+
+- [ ] **Step 2: Router**
+
+```python
+# backend/app/routers/dev.py
+import json
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import engine, get_db
+from ..deps import require_role
+from ..services.sql_console import execute_one
+from ..config import settings
+from ..schemas.dev import SqlIn
+
+router = APIRouter(prefix="/api/dev", tags=["dev"])
+
+
+@router.post("/sql/execute")
+def sql_execute(payload: SqlIn, request: Request,
+                u=Depends(require_role("admin")),
+                db: Connection = Depends(get_db)):
+    if not settings.sql_console_enabled:
+        raise HTTPException(403, "SQL console disabled")
+    try:
+        result = execute_one(engine, payload.sql, payload.max_rows)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        # Log to audit even on failure
+        db.execute(text(
+            "INSERT INTO audit_logs (user_id, action, entity_type, before_value, ip_address) "
+            "VALUES (:u, 'sql_exec_failed', 'sql', :sql, :ip)"
+        ), {"u": u.id, "sql": json.dumps({"sql": payload.sql, "error": str(e)[:200]}),
+            "ip": request.client.host if request.client else "unknown"})
+        raise HTTPException(400, f"sql error: {e}")
+
+    db.execute(text(
+        "INSERT INTO audit_logs (user_id, action, entity_type, before_value, ip_address) "
+        "VALUES (:u, 'sql_exec', 'sql', :sql, :ip)"
+    ), {"u": u.id, "sql": json.dumps({"sql": payload.sql, "kind": result["kind"],
+                                       "elapsed_ms": result["elapsed_ms"]}),
+        "ip": request.client.host if request.client else "unknown"})
+
+    # Convert non-JSON-serializable to str
+    if "rows" in result:
+        result["rows"] = [[_safe(c) for c in row] for row in result["rows"]]
+    return result
+
+
+def _safe(v):
+    from datetime import datetime, date
+    from decimal import Decimal
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, (bytes, bytearray)):
+        return v.hex()
+    return v
+```
+
+- [ ] **Step 3: Wire + commit**
+
+```python
+# main.py
+from .routers import dev as dev_router
+app.include_router(dev_router.router)
+```
+
+```bash
+git add backend/app/routers/dev.py backend/app/schemas/dev.py backend/app/main.py
+git commit -m "feat(backend): /api/dev/sql/execute (admin-only, audited, single-stmt)"
+```
+
+---
+
+## Phase 9 — RAG Backend Reservation
+
+### Task 9.1: RAG router skeleton (501 stubs)
+
+**Files:**
+- Create: `backend/app/routers/rag.py`, `backend/app/services/rag.py`
+
+- [ ] **Step 1: Service stub**
+
+```python
+# backend/app/services/rag.py
+"""RAG service skeleton — reserved, not implemented this term.
+See docs/superpowers/specs/2026-05-07-nkg-design.md §12.
+"""
+```
+
+- [ ] **Step 2: Router with 501 stubs**
+
+```python
+# backend/app/routers/rag.py
+from fastapi import APIRouter, HTTPException, Depends
+from ..deps import require_role
+
+router = APIRouter(prefix="/api/rag", tags=["rag"])
+
+
+def _stub():
+    raise HTTPException(501, "RAG reserved; not implemented this term")
+
+
+@router.post("/embed/chunks")
+def embed_chunks(u=Depends(require_role("admin"))): _stub()
+
+
+@router.post("/embed/entities")
+def embed_entities(u=Depends(require_role("admin"))): _stub()
+
+
+@router.post("/search/chunks")
+def search_chunks(u=Depends(require_role("admin"))): _stub()
+
+
+@router.post("/search/entities")
+def search_entities(u=Depends(require_role("admin"))): _stub()
+
+
+@router.post("/answer")
+def answer(u=Depends(require_role("admin"))): _stub()
+```
+
+- [ ] **Step 3: Conditional wire in `main.py`**
+
+```python
+# main.py — add at bottom of file
+if settings.rag_enabled:
+    from .routers import rag as rag_router
+    app.include_router(rag_router.router)
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add backend/app/routers/rag.py backend/app/services/rag.py backend/app/main.py
+git commit -m "feat(backend): RAG router skeleton (501 stubs, gated by RAG_ENABLED)"
+```
+
+**Phase 6-9 Done.** Backend complete. ~25 endpoints. All 6 SPs callable. SQL console live.
+
+---
+
+I'll continue with Phases 10-14 (frontend, perf, docs, demo) in the next batch.
