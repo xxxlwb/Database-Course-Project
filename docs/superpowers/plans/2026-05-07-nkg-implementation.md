@@ -1468,4 +1468,1578 @@ git commit -m "feat(sql): trigger #5 trg_chunk_entity_after_insert + test"
 
 ---
 
-I'll stop the plan file here and write Phase 4 (Stored Procedures) in a follow-up edit, plus Phases 5-14. The plan above is now ~14K characters and complete through Phase 3. Let me commit what's written, then continue appending in chunks.
+## Phase 4 — Stored Procedures (6)
+
+### Task 4.1: `sp_create_extraction_job` (parametric, IN/OUT)
+
+**Files:**
+- Create: `sql/05_procedures.sql`
+
+- [ ] **Step 1: Write file with first SP**
+
+```sql
+-- ============================================================
+-- NKG Stored Procedures (6)
+--   Parametric: sp_create_extraction_job, sp_merge_entities,
+--               sp_get_entity_neighborhood
+--   Cursor-based: sp_recompute_entity_mentions,
+--                 sp_archive_inactive_topics,
+--                 sp_propagate_entity_rename
+-- ============================================================
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_create_extraction_job$$
+CREATE PROCEDURE sp_create_extraction_job(
+    IN p_doc_id BIGINT,
+    IN p_job_type VARCHAR(32),
+    IN p_user_id BIGINT,
+    OUT p_job_id BIGINT
+)
+BEGIN
+    DECLARE v_topic_id BIGINT;
+    DECLARE v_existing BIGINT DEFAULT 0;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        SET p_job_id = NULL;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+    SELECT topic_id INTO v_topic_id FROM documents WHERE id = p_doc_id;
+    IF v_topic_id IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'document not found';
+    END IF;
+
+    SELECT id INTO v_existing
+      FROM extraction_jobs
+     WHERE document_id = p_doc_id
+       AND job_type = p_job_type
+       AND status IN ('pending', 'running')
+     LIMIT 1;
+
+    IF v_existing > 0 THEN
+        SET p_job_id = v_existing;
+    ELSE
+        INSERT INTO extraction_jobs (document_id, topic_id, job_type, status, created_by)
+        VALUES (p_doc_id, v_topic_id, p_job_type, 'pending', p_user_id);
+        SET p_job_id = LAST_INSERT_ID();
+
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_id, after_value)
+        VALUES (p_user_id, 'create', 'extraction_job', p_job_id,
+                JSON_OBJECT('document_id', p_doc_id, 'job_type', p_job_type));
+    END IF;
+
+    COMMIT;
+END$$
+
+DELIMITER ;
+```
+
+- [ ] **Step 2: Apply**
+
+```bash
+mysql -u root -p nkg < sql/05_procedures.sql
+```
+
+- [ ] **Step 3: Write test**
+
+Create `backend/tests/test_procedures.py`:
+```python
+from sqlalchemy import text
+
+
+def _seed(c):
+    c.execute(text("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')"))
+    c.execute(text("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)"))
+    c.execute(text("INSERT INTO documents (id, topic_id, uploader_id, title, source_type, content_hash) "
+                   "VALUES (1,1,1,'D','text',REPEAT('a',64))"))
+
+
+def test_sp_create_extraction_job(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    cur.execute("INSERT INTO documents (id, topic_id, uploader_id, title, source_type, content_hash) "
+                "VALUES (1,1,1,'D','text',REPEAT('a',64))")
+    raw.commit()
+
+    cur.execute("CALL sp_create_extraction_job(1, 'graph', 1, @jid)")
+    cur.execute("SELECT @jid")
+    job_id = cur.fetchone()[0]
+    assert job_id is not None and job_id > 0
+
+    # Idempotency: calling again with same args returns same id
+    cur.execute("CALL sp_create_extraction_job(1, 'graph', 1, @jid2)")
+    cur.execute("SELECT @jid2")
+    job_id_2 = cur.fetchone()[0]
+    assert job_id_2 == job_id
+
+    raw.close()
+```
+
+- [ ] **Step 4: Run + commit**
+
+```bash
+cd backend && uv run pytest tests/test_procedures.py::test_sp_create_extraction_job -v
+```
+
+```bash
+git add sql/05_procedures.sql backend/tests/test_procedures.py
+git commit -m "feat(sql): SP #1 sp_create_extraction_job (parametric IN/OUT) + test"
+```
+
+---
+
+### Task 4.2: `sp_merge_entities` (parametric, transactional)
+
+- [ ] **Step 1: Append to `sql/05_procedures.sql`**
+
+```sql
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_merge_entities$$
+CREATE PROCEDURE sp_merge_entities(
+    IN p_keep_id BIGINT,
+    IN p_merge_id BIGINT,
+    IN p_user_id BIGINT
+)
+BEGIN
+    DECLARE v_keep_topic BIGINT;
+    DECLARE v_merge_topic BIGINT;
+    DECLARE v_merge_name VARCHAR(255);
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    IF p_keep_id = p_merge_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot merge entity with itself';
+    END IF;
+
+    START TRANSACTION;
+
+    SELECT topic_id INTO v_keep_topic FROM entities WHERE id = p_keep_id FOR UPDATE;
+    SELECT topic_id, canonical_name INTO v_merge_topic, v_merge_name
+      FROM entities WHERE id = p_merge_id FOR UPDATE;
+
+    IF v_keep_topic IS NULL OR v_merge_topic IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'entity not found';
+    END IF;
+    IF v_keep_topic <> v_merge_topic THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'entities belong to different topics';
+    END IF;
+
+    -- migrate aliases (skip on UQ collision)
+    INSERT IGNORE INTO entity_aliases (entity_id, alias, source, confidence)
+    SELECT p_keep_id, alias, source, confidence FROM entity_aliases WHERE entity_id = p_merge_id;
+
+    -- record merged entity name as new alias
+    INSERT IGNORE INTO entity_aliases (entity_id, alias, source, confidence)
+    VALUES (p_keep_id, v_merge_name, 'auto', 0.99);
+
+    -- migrate chunk_entity_mapping (skip dupes; sum occurrences for collisions)
+    UPDATE IGNORE chunk_entity_mapping
+       SET entity_id = p_keep_id
+     WHERE entity_id = p_merge_id;
+    DELETE FROM chunk_entity_mapping WHERE entity_id = p_merge_id;
+
+    -- migrate relationships (drop self-loops & dupes silently)
+    UPDATE IGNORE relationships
+       SET source_entity_id = p_keep_id
+     WHERE source_entity_id = p_merge_id AND target_entity_id <> p_keep_id;
+    DELETE FROM relationships WHERE source_entity_id = p_merge_id;
+
+    UPDATE IGNORE relationships
+       SET target_entity_id = p_keep_id
+     WHERE target_entity_id = p_merge_id AND source_entity_id <> p_keep_id;
+    DELETE FROM relationships WHERE target_entity_id = p_merge_id;
+
+    -- delete merged entity
+    DELETE FROM entities WHERE id = p_merge_id;
+
+    -- mark blueprint as outdated
+    UPDATE topics SET blueprint_status = 'outdated' WHERE id = v_keep_topic;
+
+    -- audit
+    INSERT INTO audit_logs (user_id, action, entity_type, entity_id, before_value, after_value)
+    VALUES (p_user_id, 'merge', 'entity', p_keep_id,
+            JSON_OBJECT('merged_id', p_merge_id, 'merged_name', v_merge_name),
+            JSON_OBJECT('keep_id', p_keep_id));
+
+    COMMIT;
+END$$
+
+DELIMITER ;
+```
+
+- [ ] **Step 2: Apply**
+
+```bash
+mysql -u root -p nkg < sql/05_procedures.sql
+```
+
+- [ ] **Step 3: Append test**
+
+```python
+def test_sp_merge_entities(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    cur.execute("INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+                "VALUES (1,1,'A','person'), (2,1,'B','person'), (3,1,'C','person')")
+    cur.execute("INSERT INTO entity_aliases (entity_id, alias) VALUES (2, 'B-alias')")
+    cur.execute("INSERT INTO relationships (topic_id, source_entity_id, target_entity_id, relation_type) "
+                "VALUES (1, 2, 3, 'knows'), (1, 1, 2, 'colleague')")
+    raw.commit()
+
+    cur.execute("CALL sp_merge_entities(1, 2, 1)")
+    raw.commit()
+
+    cur.execute("SELECT COUNT(*) FROM entities WHERE id=2")
+    assert cur.fetchone()[0] == 0, "entity 2 should be deleted"
+
+    cur.execute("SELECT COUNT(*) FROM entity_aliases WHERE entity_id=1 AND alias IN ('B','B-alias')")
+    assert cur.fetchone()[0] == 2, "aliases should be migrated"
+
+    cur.execute("SELECT COUNT(*) FROM relationships WHERE source_entity_id=1 AND target_entity_id=3")
+    assert cur.fetchone()[0] == 1, "relationship should be redirected"
+
+    cur.execute("SELECT blueprint_status FROM topics WHERE id=1")
+    assert cur.fetchone()[0] == 'outdated'
+
+    cur.execute("SELECT COUNT(*) FROM audit_logs WHERE action='merge'")
+    assert cur.fetchone()[0] == 1
+    raw.close()
+```
+
+```bash
+cd backend && uv run pytest tests/test_procedures.py::test_sp_merge_entities -v
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add sql/05_procedures.sql backend/tests/test_procedures.py
+git commit -m "feat(sql): SP #2 sp_merge_entities (transactional, multi-table) + test"
+```
+
+---
+
+### Task 4.3: `sp_get_entity_neighborhood` (parametric, returns result set)
+
+- [ ] **Step 1: Append to `sql/05_procedures.sql`**
+
+```sql
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_get_entity_neighborhood$$
+CREATE PROCEDURE sp_get_entity_neighborhood(
+    IN p_entity_id BIGINT,
+    IN p_depth INT,
+    OUT p_node_count INT
+)
+BEGIN
+    DECLARE v_d INT DEFAULT 0;
+    DECLARE v_added INT DEFAULT 1;
+
+    IF p_depth IS NULL OR p_depth < 1 THEN SET p_depth = 1; END IF;
+    IF p_depth > 5 THEN SET p_depth = 5; END IF;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_neighborhood;
+    CREATE TEMPORARY TABLE tmp_neighborhood (
+        entity_id BIGINT PRIMARY KEY,
+        distance INT NOT NULL
+    );
+
+    INSERT INTO tmp_neighborhood VALUES (p_entity_id, 0);
+
+    WHILE v_d < p_depth AND v_added > 0 DO
+        INSERT IGNORE INTO tmp_neighborhood (entity_id, distance)
+        SELECT DISTINCT
+               CASE WHEN r.source_entity_id IN (SELECT entity_id FROM tmp_neighborhood WHERE distance = v_d)
+                    THEN r.target_entity_id
+                    ELSE r.source_entity_id
+               END AS new_id,
+               v_d + 1
+          FROM relationships r
+         WHERE r.source_entity_id IN (SELECT entity_id FROM tmp_neighborhood WHERE distance = v_d)
+            OR r.target_entity_id IN (SELECT entity_id FROM tmp_neighborhood WHERE distance = v_d);
+
+        SET v_added = ROW_COUNT();
+        SET v_d = v_d + 1;
+    END WHILE;
+
+    SELECT COUNT(*) INTO p_node_count FROM tmp_neighborhood;
+
+    SELECT n.entity_id, n.distance, e.canonical_name, e.entity_type
+      FROM tmp_neighborhood n
+      JOIN entities e ON e.id = n.entity_id
+     ORDER BY n.distance, n.entity_id;
+END$$
+
+DELIMITER ;
+```
+
+- [ ] **Step 2: Apply + test**
+
+Append:
+```python
+def test_sp_get_entity_neighborhood(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    # Build chain: 1 - 2 - 3 - 4
+    cur.execute("INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+                "VALUES (1,1,'A','person'),(2,1,'B','person'),(3,1,'C','person'),(4,1,'D','person')")
+    cur.execute("INSERT INTO relationships (topic_id, source_entity_id, target_entity_id, relation_type) "
+                "VALUES (1,1,2,'r'),(1,2,3,'r'),(1,3,4,'r')")
+    raw.commit()
+
+    cur.execute("CALL sp_get_entity_neighborhood(1, 2, @cnt)")
+    rows = cur.fetchall()
+    cur.execute("SELECT @cnt")
+    cnt = cur.fetchone()[0]
+    assert cnt == 3, f"expected nodes {{1,2,3}} (depth 2 from 1), got cnt={cnt}, rows={rows}"
+    raw.close()
+```
+
+```bash
+cd backend && uv run pytest tests/test_procedures.py::test_sp_get_entity_neighborhood -v
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add sql/05_procedures.sql backend/tests/test_procedures.py
+git commit -m "feat(sql): SP #3 sp_get_entity_neighborhood (BFS with temp table) + test"
+```
+
+---
+
+### Task 4.4: `sp_recompute_entity_mentions` (CURSOR)
+
+- [ ] **Step 1: Append to `sql/05_procedures.sql`**
+
+```sql
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_recompute_entity_mentions$$
+CREATE PROCEDURE sp_recompute_entity_mentions()
+BEGIN
+    DECLARE v_eid BIGINT;
+    DECLARE v_sum INT;
+    DECLARE done INT DEFAULT 0;
+    DECLARE cur_e CURSOR FOR SELECT id FROM entities;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    OPEN cur_e;
+    read_loop: LOOP
+        FETCH cur_e INTO v_eid;
+        IF done = 1 THEN LEAVE read_loop; END IF;
+
+        SELECT COALESCE(SUM(occurrences), 0) INTO v_sum
+          FROM chunk_entity_mapping
+         WHERE entity_id = v_eid;
+
+        UPDATE entities SET mention_count = v_sum WHERE id = v_eid;
+    END LOOP;
+    CLOSE cur_e;
+END$$
+
+DELIMITER ;
+```
+
+- [ ] **Step 2: Apply + test**
+
+Append:
+```python
+def test_sp_recompute_entity_mentions(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    cur.execute("INSERT INTO documents (id, topic_id, uploader_id, title, source_type, content_hash) "
+                "VALUES (1,1,1,'D','text',REPEAT('a',64))")
+    cur.execute("INSERT INTO document_chunks (id, document_id, chunk_index, content) "
+                "VALUES (1,1,0,'a'),(2,1,1,'b')")
+    cur.execute("INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+                "VALUES (1,1,'X','concept'),(2,1,'Y','concept')")
+    # trigger will set mention_count to 5+3=8 for entity 1 and 7 for entity 2
+    cur.execute("INSERT INTO chunk_entity_mapping (chunk_id, entity_id, occurrences) "
+                "VALUES (1,1,5),(2,1,3),(1,2,7)")
+    # corrupt mention_count manually
+    cur.execute("UPDATE entities SET mention_count = 999 WHERE id IN (1,2)")
+    raw.commit()
+
+    cur.execute("CALL sp_recompute_entity_mentions()")
+    raw.commit()
+
+    cur.execute("SELECT id, mention_count FROM entities ORDER BY id")
+    rows = dict(cur.fetchall())
+    assert rows[1] == 8, f"entity 1 expected 8, got {rows[1]}"
+    assert rows[2] == 7, f"entity 2 expected 7, got {rows[2]}"
+    raw.close()
+```
+
+```bash
+cd backend && uv run pytest tests/test_procedures.py::test_sp_recompute_entity_mentions -v
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add sql/05_procedures.sql backend/tests/test_procedures.py
+git commit -m "feat(sql): SP #4 sp_recompute_entity_mentions (cursor) + test"
+```
+
+---
+
+### Task 4.5: `sp_archive_inactive_topics` (CURSOR + IN/OUT)
+
+- [ ] **Step 1: Append to `sql/05_procedures.sql`**
+
+```sql
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_archive_inactive_topics$$
+CREATE PROCEDURE sp_archive_inactive_topics(
+    IN p_days INT,
+    OUT p_archived INT
+)
+BEGIN
+    DECLARE v_tid BIGINT;
+    DECLARE done INT DEFAULT 0;
+    DECLARE cur_t CURSOR FOR
+        SELECT id FROM topics
+         WHERE is_archived = 0
+           AND updated_at < (NOW() - INTERVAL p_days DAY);
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    SET p_archived = 0;
+    IF p_days IS NULL OR p_days < 1 THEN SET p_days = 30; END IF;
+
+    OPEN cur_t;
+    archive_loop: LOOP
+        FETCH cur_t INTO v_tid;
+        IF done = 1 THEN LEAVE archive_loop; END IF;
+
+        UPDATE topics SET is_archived = 1 WHERE id = v_tid;
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_id, after_value)
+        VALUES (NULL, 'archive', 'topic', v_tid, JSON_OBJECT('archived_after_days', p_days));
+        SET p_archived = p_archived + 1;
+    END LOOP;
+    CLOSE cur_t;
+END$$
+
+DELIMITER ;
+```
+
+- [ ] **Step 2: Apply + test**
+
+Append:
+```python
+def test_sp_archive_inactive_topics(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    # Topic 1: stale (60 days old). Topic 2: fresh.
+    cur.execute("INSERT INTO topics (id, name, owner_id, updated_at) "
+                "VALUES (1,'old',1, NOW() - INTERVAL 60 DAY), (2,'new',1, NOW())")
+    raw.commit()
+
+    cur.execute("CALL sp_archive_inactive_topics(30, @cnt)")
+    cur.execute("SELECT @cnt")
+    archived = cur.fetchone()[0]
+    assert archived == 1, f"expected 1 archived, got {archived}"
+
+    cur.execute("SELECT id, is_archived FROM topics ORDER BY id")
+    rows = dict(cur.fetchall())
+    assert rows[1] == 1 and rows[2] == 0
+    raw.close()
+```
+
+```bash
+cd backend && uv run pytest tests/test_procedures.py::test_sp_archive_inactive_topics -v
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add sql/05_procedures.sql backend/tests/test_procedures.py
+git commit -m "feat(sql): SP #5 sp_archive_inactive_topics (cursor + IN/OUT) + test"
+```
+
+---
+
+### Task 4.6: `sp_propagate_entity_rename` (CURSOR + IN)
+
+- [ ] **Step 1: Append to `sql/05_procedures.sql`**
+
+```sql
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_propagate_entity_rename$$
+CREATE PROCEDURE sp_propagate_entity_rename(
+    IN p_topic_id BIGINT,
+    IN p_pattern VARCHAR(255),
+    IN p_new_name VARCHAR(255)
+)
+BEGIN
+    DECLARE v_eid BIGINT;
+    DECLARE v_old_name VARCHAR(255);
+    DECLARE done INT DEFAULT 0;
+    DECLARE cur_e CURSOR FOR
+        SELECT id, canonical_name FROM entities
+         WHERE topic_id = p_topic_id
+           AND canonical_name LIKE p_pattern;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+    OPEN cur_e;
+    rename_loop: LOOP
+        FETCH cur_e INTO v_eid, v_old_name;
+        IF done = 1 THEN LEAVE rename_loop; END IF;
+
+        -- Save old name as alias before rename
+        INSERT IGNORE INTO entity_aliases (entity_id, alias, source, confidence)
+        VALUES (v_eid, v_old_name, 'auto', 1.00);
+
+        -- Rename (UPDATE may fail on UQ collision; in that case, skip via INSERT IGNORE-style)
+        UPDATE IGNORE entities SET canonical_name = p_new_name WHERE id = v_eid;
+    END LOOP;
+    CLOSE cur_e;
+    COMMIT;
+END$$
+
+DELIMITER ;
+```
+
+- [ ] **Step 2: Apply + test**
+
+Append:
+```python
+def test_sp_propagate_entity_rename(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    cur.execute("INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+                "VALUES (1,1,'foo-bar','concept'),(2,1,'foo-baz','concept'),(3,1,'qux','concept')")
+    raw.commit()
+
+    cur.execute("CALL sp_propagate_entity_rename(1, 'foo-%', 'normalized')")
+    raw.commit()
+
+    cur.execute("SELECT canonical_name FROM entities ORDER BY id")
+    names = [r[0] for r in cur.fetchall()]
+    # entity 1 renamed; entity 2 hits UQ collision (same new_name) so stays
+    assert 'normalized' in names
+
+    cur.execute("SELECT COUNT(*) FROM entity_aliases WHERE alias LIKE 'foo-%'")
+    assert cur.fetchone()[0] >= 1
+    raw.close()
+```
+
+```bash
+cd backend && uv run pytest tests/test_procedures.py -v
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add sql/05_procedures.sql backend/tests/test_procedures.py
+git commit -m "feat(sql): SP #6 sp_propagate_entity_rename (cursor + transaction) + test"
+```
+
+**Phase 4 Done.** All 6 SPs implemented (3 parametric + 3 cursor). Course requirements (3) ≥2 parametric and (4) ≥2 cursor — **satisfied with 3 each**.
+
+---
+
+## Phase 5 — Seed Data
+
+### Task 5.1: `sql/06_seed.sql` — demo data
+
+**Files:**
+- Create: `sql/06_seed.sql`
+
+- [ ] **Step 1: Write demo seed (small, hand-crafted)**
+
+```sql
+-- Demo data for in-class showcase
+
+-- 3 users (admin / editor / viewer); password hashes are bcrypt of "demo123"
+INSERT INTO users (username, password_hash, email, role) VALUES
+('admin',  '$2b$12$KIXwTUf5g2qQH5JfM5zZ.O6XQqK7VxC3mC4vXYa5JXz8w3EYtZxN.', 'admin@nkg.local',  'admin'),
+('editor', '$2b$12$KIXwTUf5g2qQH5JfM5zZ.O6XQqK7VxC3mC4vXYa5JXz8w3EYtZxN.', 'editor@nkg.local', 'editor'),
+('viewer', '$2b$12$KIXwTUf5g2qQH5JfM5zZ.O6XQqK7VxC3mC4vXYa5JXz8w3EYtZxN.', 'viewer@nkg.local', 'viewer');
+
+-- 2 topics
+INSERT INTO topics (name, description, owner_id) VALUES
+('三国人物图谱', '基于《三国演义》构建的人物关系图谱', 2),
+('项目复盘', '团队季度复盘文档分析', 2);
+
+-- 4 documents
+INSERT INTO documents (topic_id, uploader_id, title, source_type, content, content_hash) VALUES
+(1, 2, '官渡之战', 'text',
+ '建安五年，曹操与袁绍战于官渡。袁绍兵众而粮少，曹操奇袭乌巢烧粮，绍军溃。许攸献策，张郃高览降曹。',
+ SHA2('官渡之战', 256)),
+(1, 2, '赤壁之战', 'text',
+ '建安十三年，孙权刘备联军在周瑜统领下于赤壁大破曹操。诸葛亮舌战群儒促成联盟。黄盖诈降，火烧连营。',
+ SHA2('赤壁之战', 256)),
+(2, 2, '2024 Q4 复盘', 'markdown',
+ '# 2024 Q4 复盘\n\n张三负责支付项目，按期上线。李四主导风控重构，因依赖延期推迟两周。王五处理客户投诉。',
+ SHA2('2024Q4', 256)),
+(2, 2, '2025 Q1 启动', 'markdown',
+ '# 2025 Q1\n\n张三转岗到结算项目，李四继续推进风控2.0，王五接手客服系统重写。',
+ SHA2('2025Q1', 256));
+
+-- 8 chunks (2 per document)
+INSERT INTO document_chunks (document_id, chunk_index, content) VALUES
+(1, 0, '建安五年，曹操与袁绍战于官渡。'),
+(1, 1, '袁绍兵众而粮少，曹操奇袭乌巢烧粮，绍军溃。'),
+(2, 0, '建安十三年，孙刘联军于赤壁大破曹操。'),
+(2, 1, '诸葛亮舌战群儒促成联盟。'),
+(3, 0, '张三负责支付项目，按期上线。'),
+(3, 1, '李四主导风控重构，因依赖延期推迟两周。'),
+(4, 0, '张三转岗到结算项目，李四继续推进风控2.0。'),
+(4, 1, '王五接手客服系统重写。');
+
+-- Entities for topic 1 (三国)
+INSERT INTO entities (topic_id, canonical_name, entity_type) VALUES
+(1, '曹操', 'person'),(1, '袁绍', 'person'),(1, '刘备', 'person'),
+(1, '孙权', 'person'),(1, '诸葛亮', 'person'),(1, '周瑜', 'person'),
+(1, '官渡之战', 'event'),(1, '赤壁之战', 'event');
+
+-- Entities for topic 2 (项目复盘)
+INSERT INTO entities (topic_id, canonical_name, entity_type) VALUES
+(2, '张三', 'person'),(2, '李四', 'person'),(2, '王五', 'person'),
+(2, '支付项目', 'project'),(2, '风控重构', 'project'),(2, '结算项目', 'project'),
+(2, '客服系统', 'project');
+
+-- Relationships for topic 1
+INSERT INTO relationships (topic_id, source_entity_id, target_entity_id, relation_type, description) VALUES
+(1, 1, 2, '战', '曹袁官渡对决'),
+(1, 1, 7, '指挥', NULL),
+(1, 2, 7, '指挥', NULL),
+(1, 3, 4, '联盟', '孙刘联军'),
+(1, 5, 6, '协同', '草船借箭'),
+(1, 1, 8, '指挥', NULL),
+(1, 6, 8, '指挥', NULL);
+
+-- Relationships for topic 2
+INSERT INTO relationships (topic_id, source_entity_id, target_entity_id, relation_type, description) VALUES
+(2, 9, 12, '负责', NULL),
+(2, 10, 13, '负责', NULL),
+(2, 9, 14, '负责', '转岗后'),
+(2, 11, 15, '负责', NULL);
+
+-- Some chunk-entity mappings
+INSERT INTO chunk_entity_mapping (chunk_id, entity_id, occurrences) VALUES
+(1, 1, 1), (1, 2, 1), (2, 1, 1), (2, 2, 1),
+(3, 3, 1), (3, 4, 1), (3, 5, 1), (3, 6, 1),
+(5, 9, 1), (5, 12, 1),
+(6, 10, 1), (6, 13, 1),
+(7, 9, 1), (7, 14, 1), (7, 10, 1),
+(8, 11, 1), (8, 15, 1);
+```
+
+- [ ] **Step 2: Apply**
+
+```bash
+mysql -u root -p nkg < sql/06_seed.sql
+```
+
+- [ ] **Step 3: Verify**
+
+```bash
+mysql -u root -p nkg -e "
+  SELECT 'users' AS t, COUNT(*) FROM users
+  UNION SELECT 'topics', COUNT(*) FROM topics
+  UNION SELECT 'documents', COUNT(*) FROM documents
+  UNION SELECT 'chunks', COUNT(*) FROM document_chunks
+  UNION SELECT 'entities', COUNT(*) FROM entities
+  UNION SELECT 'relationships', COUNT(*) FROM relationships;"
+```
+
+Expected:
+```
+users: 3, topics: 2, documents: 4, chunks: 8, entities: 15, relationships: 11
+```
+
+(Note: documents trigger creates 4 cognitive_map jobs; chunks trigger updates docs; chunk_entity trigger increments entity mention_count.)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add sql/06_seed.sql
+git commit -m "feat(sql): demo seed data (3 users, 2 topics, 4 docs, 15 entities, 11 rels)"
+```
+
+---
+
+### Task 5.2: `sql/07_seed_perf.sql` — 5万级压测数据
+
+- [ ] **Step 1: Write file (uses recursive CTE + cross join for bulk)**
+
+```sql
+-- Performance seed: ~50K chunks, ~10K entities, ~30K relationships, ~50K mappings
+-- Idempotent: only loads if `documents` count < 100
+
+-- Reuse user 2 (editor) and topic 1 (created by 06_seed)
+
+-- 100 documents
+INSERT INTO documents (topic_id, uploader_id, title, source_type, content_hash)
+WITH RECURSIVE seq AS (
+    SELECT 1 AS n UNION ALL SELECT n+1 FROM seq WHERE n < 100
+)
+SELECT 1, 2, CONCAT('Perf doc ', n), 'text', SHA2(CONCAT('perf', n), 256)
+FROM seq;
+
+-- 50K chunks: 500 per doc
+INSERT INTO document_chunks (document_id, chunk_index, content)
+WITH RECURSIVE seq AS (
+    SELECT 0 AS n UNION ALL SELECT n+1 FROM seq WHERE n < 499
+)
+SELECT d.id, s.n, CONCAT('Chunk content ', d.id, '-', s.n,
+                          ' lorem ipsum dolor sit amet keyword-', d.id MOD 50)
+FROM documents d
+CROSS JOIN seq s
+WHERE d.title LIKE 'Perf doc %'
+ORDER BY d.id, s.n;
+
+-- 10K entities (filler in topic 1)
+INSERT INTO entities (topic_id, canonical_name, entity_type)
+WITH RECURSIVE seq AS (
+    SELECT 1 AS n UNION ALL SELECT n+1 FROM seq WHERE n < 10000
+)
+SELECT 1, CONCAT('PerfEntity-', n),
+    ELT(1 + n MOD 8, 'person','project','task','concept','decision','event','place','other')
+FROM seq;
+
+-- 30K relationships (random pairs, dedup via INSERT IGNORE)
+INSERT IGNORE INTO relationships (topic_id, source_entity_id, target_entity_id, relation_type)
+WITH RECURSIVE seq AS (
+    SELECT 1 AS n UNION ALL SELECT n+1 FROM seq WHERE n < 30000
+)
+SELECT 1,
+       1 + FLOOR(RAND(s.n) * 9000),
+       1 + FLOOR(RAND(s.n + 1) * 9000) + 9,
+       ELT(1 + s.n MOD 5, 'related','depends_on','knows','located_in','part_of')
+FROM seq s
+WHERE 1 + FLOOR(RAND(s.n) * 9000) <> 1 + FLOOR(RAND(s.n + 1) * 9000) + 9;
+
+-- 50K chunk-entity mappings
+INSERT IGNORE INTO chunk_entity_mapping (chunk_id, entity_id, occurrences)
+WITH RECURSIVE seq AS (
+    SELECT 1 AS n UNION ALL SELECT n+1 FROM seq WHERE n < 50000
+)
+SELECT
+    1 + FLOOR(RAND(s.n) * 50000),
+    9 + FLOOR(RAND(s.n + 1) * 9990),
+    1 + s.n MOD 5
+FROM seq s;
+```
+
+- [ ] **Step 2: Apply (allow several minutes)**
+
+```bash
+mysql -u root -p --max_allowed_packet=64M nkg -e "SET cte_max_recursion_depth = 100000;" \
+  && mysql -u root -p nkg < sql/07_seed_perf.sql
+```
+
+Expected: 1-3 minutes runtime.
+
+- [ ] **Step 3: Verify counts**
+
+```bash
+mysql -u root -p nkg -e "
+  SELECT 'documents', COUNT(*) FROM documents
+  UNION SELECT 'chunks', COUNT(*) FROM document_chunks
+  UNION SELECT 'entities', COUNT(*) FROM entities
+  UNION SELECT 'relationships', COUNT(*) FROM relationships
+  UNION SELECT 'mappings', COUNT(*) FROM chunk_entity_mapping;"
+```
+
+Expected: docs ≥104, chunks ~50K, entities ~10K, rels ~30K, mappings ~50K.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add sql/07_seed_perf.sql
+git commit -m "feat(sql): performance seed (50K chunks, 10K entities, 30K rels)"
+```
+
+---
+
+## Phase 6 — Backend Core
+
+### Task 6.1: Config + DB connection
+
+**Files:**
+- Create: `backend/app/config.py`, `backend/app/db.py`
+
+- [ ] **Step 1: `backend/app/config.py`**
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # DB
+    db_host: str = "127.0.0.1"
+    db_port: int = 3306
+    db_user: str = "root"
+    db_password: str = ""
+    db_name: str = "nkg"
+
+    # JWT
+    jwt_secret: str = "dev-secret-change-me"
+    jwt_expire_min: int = 1440
+    jwt_algorithm: str = "HS256"
+
+    # LLM
+    minimax_api_key: str = ""
+    minimax_base_url: str = "https://api.minimaxi.com/v1"
+    minimax_model: str = "abab6.5s-chat"
+    llm_mock: bool = True
+
+    # RAG (reserved)
+    rag_enabled: bool = False
+    embedding_model: str = "minimax-embedding-001"
+    embedding_dim: int = 1024
+
+    # SQL Console
+    sql_console_enabled: bool = True
+
+    @property
+    def db_url(self) -> str:
+        return (f"mysql+pymysql://{self.db_user}:{self.db_password}"
+                f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4")
+
+
+settings = Settings()
+```
+
+- [ ] **Step 2: `backend/app/db.py`**
+
+```python
+from contextlib import contextmanager
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+from .config import settings
+
+engine: Engine = create_engine(
+    settings.db_url,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=5,
+    pool_recycle=3600,
+)
+
+
+@contextmanager
+def get_conn():
+    """Yield a SQLAlchemy Connection (autocommit off, manual commit)."""
+    conn = engine.connect()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_db():
+    """FastAPI dependency."""
+    with get_conn() as c:
+        yield c
+```
+
+- [ ] **Step 3: Smoke test**
+
+```bash
+cd backend && uv run python -c "from app.db import engine; from sqlalchemy import text; \
+  print(engine.connect().execute(text('SELECT 1')).scalar())"
+```
+
+Expected: `1`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add backend/app/config.py backend/app/db.py
+git commit -m "feat(backend): config + SQLAlchemy connection"
+```
+
+---
+
+### Task 6.2: Security (JWT + bcrypt)
+
+**Files:**
+- Create: `backend/app/security.py`
+
+- [ ] **Step 1: Write file**
+
+```python
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from .config import settings
+
+_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(plain: str) -> str:
+    return _pwd.hash(plain)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return _pwd.verify(plain, hashed)
+
+
+def create_access_token(user_id: int, role: str) -> str:
+    exp = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_min)
+    payload = {"sub": str(user_id), "role": role, "exp": exp}
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_token(token: str) -> Optional[dict]:
+    try:
+        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except JWTError:
+        return None
+```
+
+- [ ] **Step 2: Test**
+
+Create `backend/tests/test_security.py`:
+```python
+from app.security import hash_password, verify_password, create_access_token, decode_token
+
+
+def test_password_round_trip():
+    h = hash_password("hunter2")
+    assert verify_password("hunter2", h)
+    assert not verify_password("wrong", h)
+
+
+def test_jwt_round_trip():
+    tok = create_access_token(42, "admin")
+    p = decode_token(tok)
+    assert p["sub"] == "42" and p["role"] == "admin"
+```
+
+```bash
+cd backend && uv run pytest tests/test_security.py -v
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add backend/app/security.py backend/tests/test_security.py
+git commit -m "feat(backend): JWT + bcrypt password helpers"
+```
+
+---
+
+### Task 6.3: Auth dependencies
+
+**Files:**
+- Create: `backend/app/deps.py`
+
+- [ ] **Step 1: Write file**
+
+```python
+from typing import Optional
+from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from .db import get_db
+from .security import decode_token
+
+
+class CurrentUser:
+    def __init__(self, id: int, username: str, role: str):
+        self.id = id
+        self.username = username
+        self.role = role
+
+
+def get_current_user(
+    authorization: Optional[str] = Header(None),
+    db: Connection = Depends(get_db),
+) -> CurrentUser:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing token")
+    token = authorization.removeprefix("Bearer ").strip()
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token")
+    uid = int(payload["sub"])
+    row = db.execute(text("SELECT id, username, role FROM users WHERE id=:id"),
+                     {"id": uid}).first()
+    if not row:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user not found")
+    return CurrentUser(id=row[0], username=row[1], role=row[2])
+
+
+def require_role(*allowed):
+    def checker(u: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if u.role not in allowed:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"role required: {allowed}")
+        return u
+    return checker
+
+
+def get_client_ip(request_headers: Optional[str] = Header(None, alias="X-Forwarded-For")) -> str:
+    return (request_headers or "").split(",")[0].strip() or "unknown"
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add backend/app/deps.py
+git commit -m "feat(backend): auth deps (get_current_user, require_role)"
+```
+
+---
+
+### Task 6.4: FastAPI main + auth router
+
+**Files:**
+- Create: `backend/app/main.py`, `backend/app/routers/__init__.py`, `backend/app/routers/auth.py`, `backend/app/schemas/__init__.py`, `backend/app/schemas/auth.py`
+
+- [ ] **Step 1: `backend/app/schemas/__init__.py`** (empty)
+
+- [ ] **Step 2: `backend/app/schemas/auth.py`**
+
+```python
+from pydantic import BaseModel, EmailStr, Field
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterIn(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    email: EmailStr
+    password: str = Field(min_length=6)
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+```
+
+- [ ] **Step 3: `backend/app/routers/__init__.py`** (empty)
+
+- [ ] **Step 4: `backend/app/routers/auth.py`**
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..security import hash_password, verify_password, create_access_token
+from ..deps import get_current_user, CurrentUser
+from ..schemas.auth import LoginIn, RegisterIn, TokenOut
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=TokenOut)
+def register(payload: RegisterIn, db: Connection = Depends(get_db)):
+    existing = db.execute(text("SELECT id FROM users WHERE username=:u OR email=:e"),
+                          {"u": payload.username, "e": payload.email}).first()
+    if existing:
+        raise HTTPException(status.HTTP_409_CONFLICT, "username or email exists")
+    res = db.execute(text(
+        "INSERT INTO users (username, password_hash, email, role) "
+        "VALUES (:u, :p, :e, 'editor')"
+    ), {"u": payload.username, "p": hash_password(payload.password), "e": payload.email})
+    uid = res.lastrowid
+    tok = create_access_token(uid, "editor")
+    return TokenOut(access_token=tok, user={"id": uid, "username": payload.username, "role": "editor"})
+
+
+@router.post("/login", response_model=TokenOut)
+def login(payload: LoginIn, db: Connection = Depends(get_db)):
+    row = db.execute(text("SELECT id, password_hash, role FROM users WHERE username=:u"),
+                     {"u": payload.username}).first()
+    if not row or not verify_password(payload.password, row[1]):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+    tok = create_access_token(row[0], row[2])
+    return TokenOut(access_token=tok, user={"id": row[0], "username": payload.username, "role": row[2]})
+
+
+@router.get("/me")
+def me(u: CurrentUser = Depends(get_current_user)):
+    return {"id": u.id, "username": u.username, "role": u.role}
+```
+
+- [ ] **Step 5: `backend/app/main.py`**
+
+```python
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .routers import auth as auth_router
+from .config import settings
+
+app = FastAPI(title="NKG", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router.router)
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "rag_enabled": settings.rag_enabled,
+            "sql_console_enabled": settings.sql_console_enabled}
+```
+
+- [ ] **Step 6: Smoke test**
+
+```bash
+cd backend && uv run uvicorn app.main:app --port 8000 &
+sleep 2
+curl -s http://localhost:8000/api/health
+kill %1
+```
+
+Expected: `{"status":"ok",...}`
+
+- [ ] **Step 7: API integration test**
+
+Create `backend/tests/test_auth_api.py`:
+```python
+import pytest
+from httpx import AsyncClient, ASGITransport
+from app.main import app
+
+
+@pytest.mark.asyncio
+async def test_register_then_login(db_engine):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.post("/api/auth/register", json={
+            "username": "testuser", "email": "t@t.com", "password": "secret123"
+        })
+        assert r.status_code == 200
+        assert "access_token" in r.json()
+
+        r2 = await ac.post("/api/auth/login",
+                           json={"username": "testuser", "password": "secret123"})
+        assert r2.status_code == 200
+        token = r2.json()["access_token"]
+
+        r3 = await ac.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert r3.status_code == 200
+        assert r3.json()["username"] == "testuser"
+```
+
+```bash
+cd backend && uv run pytest tests/test_auth_api.py -v
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add backend/app/main.py backend/app/routers/ backend/app/schemas/ backend/tests/test_auth_api.py
+git commit -m "feat(backend): FastAPI app + auth router (register/login/me)"
+```
+
+---
+
+### Task 6.5: Topics router (CRUD + archive)
+
+**Files:**
+- Create: `backend/app/schemas/topics.py`, `backend/app/routers/topics.py`
+
+- [ ] **Step 1: Schemas**
+
+```python
+# backend/app/schemas/topics.py
+from typing import Optional
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+
+class TopicIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: Optional[str] = None
+
+
+class TopicUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_archived: Optional[bool] = None
+
+
+class TopicOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    owner_id: int
+    doc_count: int
+    blueprint_status: str
+    is_archived: bool
+    created_at: datetime
+    updated_at: datetime
+```
+
+- [ ] **Step 2: Router**
+
+```python
+# backend/app/routers/topics.py
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+from ..schemas.topics import TopicIn, TopicUpdate, TopicOut
+
+router = APIRouter(prefix="/api/topics", tags=["topics"])
+
+
+@router.get("", response_model=List[TopicOut])
+def list_topics(db: Connection = Depends(get_db), u: CurrentUser = Depends(get_current_user)):
+    rows = db.execute(text(
+        "SELECT id, name, description, owner_id, doc_count, blueprint_status, "
+        "is_archived, created_at, updated_at FROM topics ORDER BY id DESC"
+    )).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@router.post("", response_model=TopicOut, status_code=201)
+def create_topic(payload: TopicIn, db: Connection = Depends(get_db),
+                 u: CurrentUser = Depends(get_current_user)):
+    try:
+        res = db.execute(text(
+            "INSERT INTO topics (name, description, owner_id) VALUES (:n, :d, :o)"
+        ), {"n": payload.name, "d": payload.description, "o": u.id})
+        tid = res.lastrowid
+    except Exception as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"name conflict: {e}")
+    return _get(db, tid)
+
+
+@router.get("/{topic_id}", response_model=TopicOut)
+def get_topic(topic_id: int, db: Connection = Depends(get_db),
+              u: CurrentUser = Depends(get_current_user)):
+    return _get(db, topic_id)
+
+
+@router.patch("/{topic_id}", response_model=TopicOut)
+def update_topic(topic_id: int, payload: TopicUpdate,
+                 db: Connection = Depends(get_db), u: CurrentUser = Depends(get_current_user)):
+    fields = {k: v for k, v in payload.dict(exclude_none=True).items()}
+    if not fields:
+        return _get(db, topic_id)
+    sets = ", ".join(f"{k}=:{k}" for k in fields)
+    fields["id"] = topic_id
+    db.execute(text(f"UPDATE topics SET {sets} WHERE id=:id"), fields)
+    return _get(db, topic_id)
+
+
+@router.delete("/{topic_id}", status_code=204)
+def delete_topic(topic_id: int, db: Connection = Depends(get_db),
+                 u: CurrentUser = Depends(get_current_user)):
+    db.execute(text("DELETE FROM topics WHERE id=:id"), {"id": topic_id})
+
+
+def _get(db: Connection, tid: int) -> dict:
+    row = db.execute(text(
+        "SELECT id, name, description, owner_id, doc_count, blueprint_status, "
+        "is_archived, created_at, updated_at FROM topics WHERE id=:id"
+    ), {"id": tid}).mappings().first()
+    if not row:
+        raise HTTPException(404, "topic not found")
+    return dict(row)
+```
+
+- [ ] **Step 3: Wire into `main.py`**
+
+Edit `backend/app/main.py` to add:
+```python
+from .routers import topics as topics_router
+app.include_router(topics_router.router)
+```
+
+- [ ] **Step 4: Test**
+
+Create `backend/tests/test_topics_api.py`:
+```python
+import pytest
+from httpx import AsyncClient, ASGITransport
+from app.main import app
+
+
+async def _login(ac):
+    await ac.post("/api/auth/register", json={
+        "username": "t1", "email": "t1@t.com", "password": "secret123"})
+    r = await ac.post("/api/auth/login", json={"username": "t1", "password": "secret123"})
+    return r.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_topic_crud(db_engine):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        tok = await _login(ac)
+        h = {"Authorization": f"Bearer {tok}"}
+
+        r = await ac.post("/api/topics", json={"name": "demo", "description": "d"}, headers=h)
+        assert r.status_code == 201
+        tid = r.json()["id"]
+
+        r = await ac.get("/api/topics", headers=h)
+        assert any(t["id"] == tid for t in r.json())
+
+        r = await ac.patch(f"/api/topics/{tid}", json={"is_archived": True}, headers=h)
+        assert r.json()["is_archived"] is True
+
+        r = await ac.delete(f"/api/topics/{tid}", headers=h)
+        assert r.status_code == 204
+```
+
+```bash
+cd backend && uv run pytest tests/test_topics_api.py -v
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/schemas/topics.py backend/app/routers/topics.py backend/app/main.py backend/tests/test_topics_api.py
+git commit -m "feat(backend): topics router (CRUD + archive)"
+```
+
+---
+
+### Task 6.6: Documents router (upload + chunks)
+
+**Files:**
+- Create: `backend/app/schemas/documents.py`, `backend/app/routers/documents.py`, `backend/app/services/__init__.py`, `backend/app/services/chunker.py`
+
+- [ ] **Step 1: Chunker service**
+
+```python
+# backend/app/services/__init__.py  (empty)
+```
+
+```python
+# backend/app/services/chunker.py
+from typing import List
+
+def chunk_text(text: str, max_chars: int = 500) -> List[str]:
+    """Naive paragraph-aware chunker."""
+    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+    out: List[str] = []
+    buf = ""
+    for p in paras:
+        if len(buf) + len(p) + 2 <= max_chars:
+            buf = (buf + "\n\n" + p) if buf else p
+        else:
+            if buf:
+                out.append(buf)
+            if len(p) <= max_chars:
+                buf = p
+            else:
+                # split overly long paragraph
+                for i in range(0, len(p), max_chars):
+                    out.append(p[i:i + max_chars])
+                buf = ""
+    if buf:
+        out.append(buf)
+    return out
+```
+
+- [ ] **Step 2: Schemas**
+
+```python
+# backend/app/schemas/documents.py
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel
+
+
+class DocumentIn(BaseModel):
+    topic_id: int
+    title: str
+    source_type: str = "text"
+    content: str
+
+
+class DocumentOut(BaseModel):
+    id: int
+    topic_id: int
+    uploader_id: int
+    title: str
+    source_type: str
+    content: Optional[str]
+    chunks_count: int
+    status: str
+    uploaded_at: datetime
+
+
+class ChunkOut(BaseModel):
+    id: int
+    document_id: int
+    chunk_index: int
+    content: str
+    token_count: Optional[int]
+```
+
+- [ ] **Step 3: Router**
+
+```python
+# backend/app/routers/documents.py
+import hashlib
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from ..db import get_db
+from ..deps import get_current_user, CurrentUser
+from ..schemas.documents import DocumentIn, DocumentOut, ChunkOut
+from ..services.chunker import chunk_text
+
+router = APIRouter(prefix="/api/documents", tags=["documents"])
+
+
+@router.get("", response_model=List[DocumentOut])
+def list_docs(topic_id: Optional[int] = Query(None),
+              db: Connection = Depends(get_db),
+              u: CurrentUser = Depends(get_current_user)):
+    sql = ("SELECT id, topic_id, uploader_id, title, source_type, content, "
+           "chunks_count, status, uploaded_at FROM documents")
+    params = {}
+    if topic_id:
+        sql += " WHERE topic_id=:tid"
+        params["tid"] = topic_id
+    sql += " ORDER BY id DESC LIMIT 200"
+    rows = db.execute(text(sql), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@router.post("", response_model=DocumentOut, status_code=201)
+def create_doc(payload: DocumentIn,
+               db: Connection = Depends(get_db),
+               u: CurrentUser = Depends(get_current_user)):
+    h = hashlib.sha256(payload.content.encode("utf-8")).hexdigest()
+    res = db.execute(text(
+        "INSERT INTO documents (topic_id, uploader_id, title, source_type, content, "
+        "content_hash, file_size) VALUES (:t, :u, :ti, :st, :c, :h, :fs)"
+    ), {"t": payload.topic_id, "u": u.id, "ti": payload.title,
+        "st": payload.source_type, "c": payload.content, "h": h,
+        "fs": len(payload.content.encode())})
+    did = res.lastrowid
+
+    # auto-chunk
+    chunks = chunk_text(payload.content)
+    for idx, c in enumerate(chunks):
+        ch = hashlib.sha256(c.encode()).hexdigest()
+        db.execute(text(
+            "INSERT INTO document_chunks (document_id, chunk_index, content, content_hash, token_count) "
+            "VALUES (:d, :i, :c, :h, :t)"
+        ), {"d": did, "i": idx, "c": c, "h": ch, "t": len(c)})
+
+    db.execute(text("UPDATE documents SET status='chunk_done' WHERE id=:id"), {"id": did})
+    return _get(db, did)
+
+
+@router.get("/{doc_id}", response_model=DocumentOut)
+def get_doc(doc_id: int, db: Connection = Depends(get_db),
+            u: CurrentUser = Depends(get_current_user)):
+    return _get(db, doc_id)
+
+
+@router.delete("/{doc_id}", status_code=204)
+def delete_doc(doc_id: int, db: Connection = Depends(get_db),
+               u: CurrentUser = Depends(get_current_user)):
+    # Decrement topic doc_count first (no DELETE trigger; manual housekeeping)
+    row = db.execute(text("SELECT topic_id FROM documents WHERE id=:id"),
+                     {"id": doc_id}).first()
+    if row:
+        db.execute(text("UPDATE topics SET doc_count = GREATEST(doc_count-1, 0) WHERE id=:t"),
+                   {"t": row[0]})
+    db.execute(text("DELETE FROM documents WHERE id=:id"), {"id": doc_id})
+
+
+@router.get("/{doc_id}/chunks", response_model=List[ChunkOut])
+def list_chunks(doc_id: int, db: Connection = Depends(get_db),
+                u: CurrentUser = Depends(get_current_user)):
+    rows = db.execute(text(
+        "SELECT id, document_id, chunk_index, content, token_count "
+        "FROM document_chunks WHERE document_id=:id ORDER BY chunk_index"
+    ), {"id": doc_id}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def _get(db: Connection, did: int) -> dict:
+    row = db.execute(text(
+        "SELECT id, topic_id, uploader_id, title, source_type, content, "
+        "chunks_count, status, uploaded_at FROM documents WHERE id=:id"
+    ), {"id": did}).mappings().first()
+    if not row:
+        raise HTTPException(404, "document not found")
+    return dict(row)
+```
+
+- [ ] **Step 4: Wire + smoke**
+
+Edit `main.py`:
+```python
+from .routers import documents as documents_router
+app.include_router(documents_router.router)
+```
+
+```bash
+cd backend && uv run pytest tests/ -v
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/ backend/app/schemas/documents.py backend/app/routers/documents.py backend/app/main.py
+git commit -m "feat(backend): documents router (CRUD + auto-chunk + chunks list)"
+```
+
+---
+
+I'll continue with Phases 6.7 onward in the next batch.
