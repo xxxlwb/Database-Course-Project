@@ -74,3 +74,31 @@ def test_sp_get_entity_neighborhood(db_engine):
     cnt = cur.fetchone()[0]
     assert cnt == 3, f"expected nodes (1,2,3) (depth 2 from 1), got cnt={cnt}, rows={rows}"
     raw.close()
+
+
+def test_sp_recompute_entity_mentions(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    cur.execute("INSERT INTO documents (id, topic_id, uploader_id, title, source_type, content_hash) "
+                "VALUES (1,1,1,'D','text',REPEAT('a',64))")
+    cur.execute("INSERT INTO document_chunks (id, document_id, chunk_index, content) "
+                "VALUES (1,1,0,'a'),(2,1,1,'b')")
+    cur.execute("INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+                "VALUES (1,1,'X','concept'),(2,1,'Y','concept')")
+    # trigger will set mention_count to 5+3=8 for entity 1 and 7 for entity 2
+    cur.execute("INSERT INTO chunk_entity_mapping (chunk_id, entity_id, occurrences) "
+                "VALUES (1,1,5),(2,1,3),(1,2,7)")
+    # corrupt mention_count manually
+    cur.execute("UPDATE entities SET mention_count = 999 WHERE id IN (1,2)")
+    raw.commit()
+
+    cur.execute("CALL sp_recompute_entity_mentions()")
+    raw.commit()
+
+    cur.execute("SELECT id, mention_count FROM entities ORDER BY id")
+    rows = dict(cur.fetchall())
+    assert rows[1] == 8, f"entity 1 expected 8, got {rows[1]}"
+    assert rows[2] == 7, f"entity 2 expected 7, got {rows[2]}"
+    raw.close()

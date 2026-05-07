@@ -207,3 +207,30 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_recompute_entity_mentions$$
+CREATE PROCEDURE sp_recompute_entity_mentions()
+BEGIN
+    DECLARE v_eid BIGINT;
+    DECLARE v_sum INT;
+    DECLARE done INT DEFAULT 0;
+    DECLARE cur_e CURSOR FOR SELECT id FROM entities;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    OPEN cur_e;
+    read_loop: LOOP
+        FETCH cur_e INTO v_eid;
+        IF done = 1 THEN LEAVE read_loop; END IF;
+
+        SELECT COALESCE(SUM(occurrences), 0) INTO v_sum
+          FROM chunk_entity_mapping
+         WHERE entity_id = v_eid;
+
+        UPDATE entities SET mention_count = v_sum WHERE id = v_eid;
+    END LOOP;
+    CLOSE cur_e;
+END$$
+
+DELIMITER ;
