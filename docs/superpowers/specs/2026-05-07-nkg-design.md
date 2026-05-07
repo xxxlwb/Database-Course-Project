@@ -114,7 +114,8 @@ documents(id BIGINT PK,
           source_type ENUM('text','markdown','pdf') NOT NULL,
           original_filename VARCHAR(255),
           file_size BIGINT,
-          content TEXT,                                  -- 原文存放（小文档）
+          storage_path VARCHAR(512),                     -- 大文件落盘路径（PDF 必填）
+          content MEDIUMTEXT,                            -- 解析后的纯文本（PDF 也存解析结果）
           content_hash CHAR(64) NOT NULL,                -- SHA-256，去重
           chunks_count INT DEFAULT 0,                    -- 触发器维护
           status ENUM('uploaded','chunking','chunk_done',
@@ -235,7 +236,7 @@ audit_logs(id BIGINT PK,
 |---|---|---|
 | `sp_create_extraction_job` | IN doc_id BIGINT, IN job_type VARCHAR(32), IN user_id BIGINT, OUT job_id BIGINT | 事务性创建抽取任务，校验文档存在性与去重 |
 | `sp_merge_entities` | IN keep_id BIGINT, IN merge_id BIGINT, IN user_id BIGINT | 实体合并：迁移所有关系/映射/别名 → 删除被合并实体 → 事务 + 审计；冲突回滚 |
-| `sp_get_entity_neighborhood` | IN entity_id BIGINT, IN depth INT, OUT node_count INT | BFS 求 N 度邻居（depth ≤ 5 限制），结果通过临时表返回 |
+| `sp_get_entity_neighborhood` | IN entity_id BIGINT, IN depth INT, OUT node_count INT | BFS 求 N 度邻居（depth ≤ 5 限制）。实现：在 sp 内创建会话级临时表 `tmp_neighborhood(entity_id BIGINT, distance INT)`，BFS 写入；sp 末尾 `SELECT * FROM tmp_neighborhood`，调用方拿 result set + OUT 参数 |
 
 #### 用游标（3 个，要求 ≥2）
 
@@ -251,7 +252,7 @@ audit_logs(id BIGINT PK,
 
 ```sql
 CREATE INDEX idx_documents_topic_status ON documents(topic_id, status);
-CREATE INDEX idx_chunks_doc_idx ON document_chunks(document_id, chunk_index);
+CREATE INDEX idx_documents_content_hash ON documents(content_hash);   -- 去重查询
 CREATE INDEX idx_entities_topic_type_name ON entities(topic_id, entity_type, canonical_name);
 CREATE INDEX idx_relationships_src_dst_type ON relationships(source_entity_id, target_entity_id, relation_type);
 CREATE INDEX idx_mapping_entity ON chunk_entity_mapping(entity_id);   -- 反向查询
@@ -378,9 +379,9 @@ CREATE VIEW v_extraction_job_status AS ...    -- 抽取任务总览
 | `EXPLAIN [ANALYZE] ...` | 取计划 | 表格 + 计划树（可折叠节点，cost/rows） |
 | `INSERT/UPDATE/DELETE` | 取 affected rows | "✓ 成功，影响 N 行" + 用时 |
 | `CREATE/ALTER/DROP/TRUNCATE` | 取状态 | "✓ DDL 执行成功" + 用时 + 二次确认 |
-| `CALL sp_xxx(...)` | 取多结果集 | 多 tab 表格（OUT 参数单独一栏） |
+| `CALL sp_xxx(...)` | 取多结果集 + OUT 参数 | 多 tab 表格（OUT 参数单独一栏） |
 | `SHOW TABLES/INDEX/CREATE...` | 取行集 | 表格 |
-| `BEGIN/COMMIT/ROLLBACK` | 维持会话 | session 状态条显示"事务中" |
+| `BEGIN/COMMIT/ROLLBACK` | 见下方"事务模式" | 状态条显示"事务中"|
 
 **安全护栏**：
 - 仅 `admin` 角色访问
@@ -390,6 +391,12 @@ CREATE VIEW v_extraction_job_status AS ...    -- 抽取任务总览
 - `SET STATEMENT max_statement_time=15` 防死循环
 - 一次只允许一条 SQL（拒绝 `;` 拼接），防止注入式批量
 - 历史抽屉：最近 50 条本人执行的 SQL
+
+**事务模式**：
+- 默认每条语句独立事务（autocommit=ON）
+- 用户点"开启事务"按钮 → 后端在内存 dict 里为该 user 申领一个独占连接（连接池外另起），key=user_id，TTL 5 分钟
+- 期间所有 SQL 走该连接；用户点 COMMIT/ROLLBACK 或 TTL 到期时归还连接
+- 若同 user 连两个 SQL 控制台 tab：第二个看到"已有活动事务"提示，需先结束
 
 **前端组件**：
 - 编辑器：Monaco（VSCode 同款 + MySQL 高亮）
