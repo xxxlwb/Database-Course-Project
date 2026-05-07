@@ -9,6 +9,7 @@ from .routers import graph as graph_router
 from .routers import jobs as jobs_router, audit as audit_router, admin as admin_router
 from .routers import cognitive as cog_router
 from .routers import blueprint as bp_router
+from .routers import extract as extract_router
 from .config import settings
 
 app = FastAPI(title="NKG", version="0.1.0")
@@ -32,6 +33,7 @@ app.include_router(audit_router.router)
 app.include_router(admin_router.router)
 app.include_router(cog_router.router)
 app.include_router(bp_router.router)
+app.include_router(extract_router.router)
 
 
 @app.get("/api/health")
