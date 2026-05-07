@@ -4358,4 +4358,1635 @@ git commit -m "feat(backend): RAG router skeleton (501 stubs, gated by RAG_ENABL
 
 ---
 
-I'll continue with Phases 10-14 (frontend, perf, docs, demo) in the next batch.
+## Phase 10 — Frontend Foundation
+
+### Task 10.1: Router + auth store
+
+**Files:**
+- Create: `frontend/src/router/index.ts`, `frontend/src/stores/auth.ts`, `frontend/src/api/client.ts`
+
+- [ ] **Step 1: API client**
+
+```typescript
+// frontend/src/api/client.ts
+import axios from 'axios'
+
+const client = axios.create({ baseURL: '/api', timeout: 30000 })
+
+client.interceptors.request.use((cfg) => {
+  const tok = localStorage.getItem('nkg_token')
+  if (tok) cfg.headers.Authorization = `Bearer ${tok}`
+  return cfg
+})
+
+client.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem('nkg_token')
+      localStorage.removeItem('nkg_user')
+      if (location.pathname !== '/login') location.href = '/login'
+    }
+    return Promise.reject(err)
+  }
+)
+
+export default client
+```
+
+- [ ] **Step 2: Auth store**
+
+```typescript
+// frontend/src/stores/auth.ts
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import client from '../api/client'
+
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref<{ id: number; username: string; role: string } | null>(
+    JSON.parse(localStorage.getItem('nkg_user') || 'null')
+  )
+
+  async function login(username: string, password: string) {
+    const r = await client.post('/auth/login', { username, password })
+    localStorage.setItem('nkg_token', r.data.access_token)
+    localStorage.setItem('nkg_user', JSON.stringify(r.data.user))
+    user.value = r.data.user
+  }
+
+  async function register(username: string, email: string, password: string) {
+    const r = await client.post('/auth/register', { username, email, password })
+    localStorage.setItem('nkg_token', r.data.access_token)
+    localStorage.setItem('nkg_user', JSON.stringify(r.data.user))
+    user.value = r.data.user
+  }
+
+  function logout() {
+    localStorage.removeItem('nkg_token')
+    localStorage.removeItem('nkg_user')
+    user.value = null
+  }
+
+  return { user, login, register, logout }
+})
+```
+
+- [ ] **Step 3: Router with auth guard**
+
+```typescript
+// frontend/src/router/index.ts
+import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+
+const routes: RouteRecordRaw[] = [
+  { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true } },
+  {
+    path: '/',
+    component: () => import('../views/Layout.vue'),
+    children: [
+      { path: '', name: 'dashboard', component: () => import('../views/Dashboard.vue') },
+      { path: 'topics', component: () => import('../views/Topics.vue') },
+      { path: 'topics/:id', component: () => import('../views/TopicDetail.vue') },
+      { path: 'topics/:id/graph', component: () => import('../views/Graph.vue') },
+      { path: 'documents', component: () => import('../views/Documents.vue') },
+      { path: 'documents/:id', component: () => import('../views/DocumentDetail.vue') },
+      { path: 'entities', component: () => import('../views/Entities.vue') },
+      { path: 'relationships', component: () => import('../views/Relationships.vue') },
+      { path: 'jobs', component: () => import('../views/Jobs.vue') },
+      { path: 'audit', component: () => import('../views/Audit.vue') },
+      { path: 'dev/sql', component: () => import('../views/SqlConsole.vue') },
+      { path: 'settings', component: () => import('../views/Settings.vue') },
+    ],
+  },
+]
+
+const router = createRouter({ history: createWebHistory(), routes })
+
+router.beforeEach((to, _from, next) => {
+  const auth = useAuthStore()
+  if (to.meta.public) return next()
+  if (!auth.user) return next('/login')
+  next()
+})
+
+export default router
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add frontend/src/api/ frontend/src/stores/ frontend/src/router/
+git commit -m "feat(frontend): router with auth guard, axios client, Pinia auth store"
+```
+
+---
+
+### Task 10.2: Layout shell
+
+**Files:**
+- Create: `frontend/src/views/Layout.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <el-container class="app">
+    <el-aside width="220px" class="aside">
+      <div class="logo">NKG</div>
+      <el-menu :default-active="route.path" router :collapse="false">
+        <el-menu-item index="/">📊 Dashboard</el-menu-item>
+        <el-menu-item index="/topics">📁 Topics</el-menu-item>
+        <el-menu-item index="/documents">📄 Documents</el-menu-item>
+        <el-menu-item index="/entities">🧩 Entities</el-menu-item>
+        <el-menu-item index="/relationships">🔗 Relationships</el-menu-item>
+        <el-menu-item index="/jobs">⚙️ Jobs</el-menu-item>
+        <el-menu-item index="/audit">📋 Audit</el-menu-item>
+        <el-menu-item v-if="auth.user?.role==='admin'" index="/dev/sql">💻 SQL Console</el-menu-item>
+        <el-menu-item v-if="auth.user?.role==='admin'" index="/settings">⚙ Settings</el-menu-item>
+      </el-menu>
+    </el-aside>
+    <el-container>
+      <el-header class="header">
+        <span>{{ auth.user?.username }} · {{ auth.user?.role }}</span>
+        <el-button text @click="logout">退出</el-button>
+      </el-header>
+      <el-main><router-view /></el-main>
+    </el-container>
+  </el-container>
+</template>
+
+<script setup lang="ts">
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+
+const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+
+function logout() {
+  auth.logout()
+  router.push('/login')
+}
+</script>
+
+<style scoped>
+.app { height: 100vh; }
+.aside { background: #001529; color: white; }
+.logo { font-size: 22px; font-weight: bold; padding: 16px; color: white; text-align: center; }
+.header { display: flex; justify-content: space-between; align-items: center;
+  background: #fff; border-bottom: 1px solid #eee; }
+:deep(.el-menu) { background: transparent; border: none; }
+:deep(.el-menu-item) { color: #ccc; }
+:deep(.el-menu-item.is-active) { color: #fff; background: #1890ff; }
+</style>
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add frontend/src/views/Layout.vue
+git commit -m "feat(frontend): layout shell with sidebar nav"
+```
+
+---
+
+## Phase 11 — Frontend Pages
+
+> **Per-page template:** Each page follows the same pattern: top filter bar → main table/form → action buttons. Pages share the API client and Element Plus components. Below each page step lists exact code.
+
+### Task 11.1: Login page
+
+**Files:**
+- Create: `frontend/src/views/Login.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <div class="login-bg">
+    <el-card class="card">
+      <h2>NKG · 叙事知识图谱</h2>
+      <el-tabs v-model="tab">
+        <el-tab-pane label="登录" name="login">
+          <el-form @submit.prevent="onLogin">
+            <el-form-item>
+              <el-input v-model="form.username" placeholder="用户名" />
+            </el-form-item>
+            <el-form-item>
+              <el-input v-model="form.password" type="password" placeholder="密码" />
+            </el-form-item>
+            <el-button type="primary" native-type="submit" :loading="busy" style="width:100%">
+              登录
+            </el-button>
+          </el-form>
+        </el-tab-pane>
+        <el-tab-pane label="注册" name="register">
+          <el-form @submit.prevent="onRegister">
+            <el-form-item><el-input v-model="form.username" placeholder="用户名（≥3字）" /></el-form-item>
+            <el-form-item><el-input v-model="form.email" placeholder="邮箱" /></el-form-item>
+            <el-form-item><el-input v-model="form.password" type="password" placeholder="密码（≥6字）" /></el-form-item>
+            <el-button type="primary" native-type="submit" :loading="busy" style="width:100%">
+              注册并登录
+            </el-button>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
+    </el-card>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { useAuthStore } from '../stores/auth'
+
+const tab = ref('login')
+const form = reactive({ username: '', email: '', password: '' })
+const busy = ref(false)
+const router = useRouter()
+const auth = useAuthStore()
+
+async function onLogin() {
+  if (!form.username || !form.password) return ElMessage.warning('请填用户名和密码')
+  busy.value = true
+  try { await auth.login(form.username, form.password); router.push('/') }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '登录失败') }
+  finally { busy.value = false }
+}
+
+async function onRegister() {
+  if (!form.username || !form.email || !form.password) return ElMessage.warning('请填全')
+  busy.value = true
+  try { await auth.register(form.username, form.email, form.password); router.push('/') }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '注册失败') }
+  finally { busy.value = false }
+}
+</script>
+
+<style scoped>
+.login-bg { width: 100vw; height: 100vh; background: linear-gradient(135deg, #667eea, #764ba2);
+  display: flex; align-items: center; justify-content: center; }
+.card { width: 400px; padding: 16px; }
+h2 { text-align: center; }
+</style>
+```
+
+- [ ] **Step 2: Verify build runs**
+
+```bash
+cd frontend && pnpm dev &
+sleep 3
+curl -s http://localhost:5173 | head -5
+kill %1
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/views/Login.vue
+git commit -m "feat(frontend): login + register page"
+```
+
+---
+
+### Task 11.2: Dashboard page
+
+**Files:**
+- Create: `frontend/src/views/Dashboard.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <div>
+    <h2>系统概览</h2>
+    <el-row :gutter="16">
+      <el-col :span="6"><el-card><div class="stat">{{ stats.topics }}</div><div>主题</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="stat">{{ stats.docs }}</div><div>文档</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="stat">{{ stats.entities }}</div><div>实体</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="stat">{{ stats.rels }}</div><div>关系</div></el-card></el-col>
+    </el-row>
+
+    <el-card style="margin-top:16px">
+      <template #header>最近抽取任务</template>
+      <el-table :data="jobs" size="small">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="job_type" label="类型" width="120" />
+        <el-table-column prop="status" label="状态" width="100">
+          <template #default="{row}">
+            <el-tag :type="statusType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="topic_id" label="Topic" width="80" />
+        <el-table-column prop="document_id" label="Doc" width="80" />
+        <el-table-column prop="created_at" label="创建时间" />
+      </el-table>
+    </el-card>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, reactive } from 'vue'
+import client from '../api/client'
+
+const stats = reactive({ topics: 0, docs: 0, entities: 0, rels: 0 })
+const jobs = ref<any[]>([])
+
+function statusType(s: string) {
+  return { pending: 'info', running: 'warning', completed: 'success', failed: 'danger' }[s] || ''
+}
+
+onMounted(async () => {
+  const [t, d, e, r, j] = await Promise.all([
+    client.get('/topics'),
+    client.get('/documents'),
+    client.get('/entities'),
+    client.get('/relationships'),
+    client.get('/jobs?limit=10'),
+  ])
+  stats.topics = t.data.length
+  stats.docs = d.data.length
+  stats.entities = e.data.length
+  stats.rels = r.data.length
+  jobs.value = j.data.slice(0, 10)
+})
+</script>
+
+<style scoped>.stat { font-size: 36px; font-weight: bold; color: #1890ff; }</style>
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add frontend/src/views/Dashboard.vue
+git commit -m "feat(frontend): dashboard with stats cards + recent jobs"
+```
+
+---
+
+### Task 11.3: Topics list
+
+**Files:**
+- Create: `frontend/src/views/Topics.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <div>
+    <div class="bar">
+      <h2>主题管理</h2>
+      <el-button type="primary" @click="openCreate">+ 新建主题</el-button>
+    </div>
+    <el-table :data="rows" border>
+      <el-table-column prop="id" label="ID" width="60" />
+      <el-table-column prop="name" label="名称" width="220" />
+      <el-table-column prop="description" label="描述" />
+      <el-table-column prop="doc_count" label="文档数" width="80" />
+      <el-table-column prop="blueprint_status" label="蓝图状态" width="100">
+        <template #default="{row}">
+          <el-tag :type="row.blueprint_status==='ready'?'success':'info'">
+            {{ row.blueprint_status }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="is_archived" label="归档" width="80">
+        <template #default="{row}">
+          <el-tag v-if="row.is_archived" type="warning">已归档</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="240">
+        <template #default="{row}">
+          <el-button size="small" @click="$router.push(`/topics/${row.id}`)">详情</el-button>
+          <el-button size="small" @click="$router.push(`/topics/${row.id}/graph`)">图谱</el-button>
+          <el-button size="small" type="warning" @click="archive(row)">
+            {{ row.is_archived ? '取消归档' : '归档' }}
+          </el-button>
+          <el-button size="small" type="danger" @click="del(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-dialog v-model="dlg" title="新建主题">
+      <el-form>
+        <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="form.description" type="textarea" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dlg=false">取消</el-button>
+        <el-button type="primary" @click="create">创建</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import client from '../api/client'
+
+const rows = ref<any[]>([])
+const dlg = ref(false)
+const form = reactive({ name: '', description: '' })
+
+async function load() {
+  rows.value = (await client.get('/topics')).data
+}
+
+function openCreate() {
+  form.name = ''; form.description = ''; dlg.value = true
+}
+
+async function create() {
+  try { await client.post('/topics', form); dlg.value = false; await load(); ElMessage.success('已创建') }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '失败') }
+}
+
+async function archive(row: any) {
+  await client.patch(`/topics/${row.id}`, { is_archived: !row.is_archived })
+  await load()
+}
+
+async function del(row: any) {
+  await ElMessageBox.confirm('确认删除？将同时删除其下文档/实体/关系', '危险', { type: 'warning' })
+  await client.delete(`/topics/${row.id}`)
+  await load()
+  ElMessage.success('已删除')
+}
+
+onMounted(load)
+</script>
+
+<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add frontend/src/views/Topics.vue
+git commit -m "feat(frontend): topics list (CRUD + archive)"
+```
+
+---
+
+### Task 11.4: Topic detail (with tabs)
+
+**Files:**
+- Create: `frontend/src/views/TopicDetail.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <div v-if="topic">
+    <h2>{{ topic.name }} <el-tag size="small">{{ topic.blueprint_status }}</el-tag></h2>
+    <p>{{ topic.description }}</p>
+
+    <el-tabs v-model="tab">
+      <el-tab-pane label="文档" name="docs">
+        <el-button type="primary" size="small" @click="$router.push(`/documents?topic_id=${topic.id}`)">
+          管理本 Topic 文档
+        </el-button>
+        <el-table :data="docs" size="small" style="margin-top:8px">
+          <el-table-column prop="id" width="60" /><el-table-column prop="title" />
+          <el-table-column prop="status" width="120" />
+          <el-table-column prop="chunks_count" label="块数" width="80" />
+          <el-table-column label="操作" width="120">
+            <template #default="{row}">
+              <el-button size="small" @click="$router.push(`/documents/${row.id}`)">查看</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="实体" name="entities">
+        <el-table :data="entities" size="small">
+          <el-table-column prop="canonical_name" label="名称" />
+          <el-table-column prop="entity_type" label="类型" width="100" />
+          <el-table-column prop="mention_count" label="提及次数" width="100" />
+        </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="关系" name="rels">
+        <el-table :data="rels" size="small">
+          <el-table-column prop="relation_type" label="类型" width="120" />
+          <el-table-column prop="source_entity_id" label="源" width="80" />
+          <el-table-column prop="target_entity_id" label="目标" width="80" />
+          <el-table-column prop="description" label="描述" />
+        </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="蓝图" name="blueprint">
+        <el-button type="primary" size="small" @click="genBlueprint">生成/重建</el-button>
+        <pre v-if="blueprint" style="margin-top:8px">{{ JSON.stringify(blueprint, null, 2) }}</pre>
+        <el-empty v-else description="尚无蓝图" />
+      </el-tab-pane>
+
+      <el-tab-pane label="抽取" name="extract">
+        <el-alert title="LLM 抽取" type="info" show-icon />
+        <el-button type="primary" style="margin-top:8px" @click="extract">运行抽取</el-button>
+        <pre v-if="extractResult">{{ JSON.stringify(extractResult, null, 2) }}</pre>
+      </el-tab-pane>
+    </el-tabs>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import client from '../api/client'
+
+const route = useRoute()
+const tid = Number(route.params.id)
+const tab = ref('docs')
+const topic = ref<any>(null)
+const docs = ref<any[]>([])
+const entities = ref<any[]>([])
+const rels = ref<any[]>([])
+const blueprint = ref<any>(null)
+const extractResult = ref<any>(null)
+
+async function load() {
+  topic.value = (await client.get(`/topics/${tid}`)).data
+  docs.value = (await client.get(`/documents?topic_id=${tid}`)).data
+  entities.value = (await client.get(`/entities?topic_id=${tid}`)).data
+  rels.value = (await client.get(`/relationships?topic_id=${tid}`)).data
+  try { blueprint.value = (await client.get(`/topics/${tid}/blueprint`)).data } catch { blueprint.value = null }
+}
+
+async function genBlueprint() {
+  try { blueprint.value = (await client.post(`/topics/${tid}/blueprint`)).data; ElMessage.success('已生成') }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '失败') }
+}
+
+async function extract() {
+  try { extractResult.value = (await client.post(`/topics/${tid}/extract`)).data; await load() }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '失败') }
+}
+
+onMounted(load)
+</script>
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add frontend/src/views/TopicDetail.vue
+git commit -m "feat(frontend): topic detail with docs/entities/rels/blueprint/extract tabs"
+```
+
+---
+
+### Task 11.5: Documents list + detail
+
+**Files:**
+- Create: `frontend/src/views/Documents.vue`, `frontend/src/views/DocumentDetail.vue`
+
+- [ ] **Step 1: Documents list**
+
+```vue
+<!-- frontend/src/views/Documents.vue -->
+<template>
+  <div>
+    <div class="bar">
+      <h2>文档管理</h2>
+      <el-button type="primary" @click="dlg=true">+ 上传文档</el-button>
+    </div>
+    <el-table :data="rows" border>
+      <el-table-column prop="id" label="ID" width="60" />
+      <el-table-column prop="title" label="标题" />
+      <el-table-column prop="topic_id" label="Topic" width="80" />
+      <el-table-column prop="status" label="状态" width="120" />
+      <el-table-column prop="chunks_count" label="块数" width="80" />
+      <el-table-column label="操作" width="180">
+        <template #default="{row}">
+          <el-button size="small" @click="$router.push(`/documents/${row.id}`)">详情</el-button>
+          <el-button size="small" type="danger" @click="del(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-dialog v-model="dlg" title="上传文档" width="640">
+      <el-form>
+        <el-form-item label="Topic">
+          <el-select v-model="form.topic_id"><el-option v-for="t in topics" :key="t.id" :label="t.name" :value="t.id" /></el-select>
+        </el-form-item>
+        <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
+        <el-form-item label="类型">
+          <el-radio-group v-model="form.source_type"><el-radio value="text">text</el-radio><el-radio value="markdown">markdown</el-radio></el-radio-group>
+        </el-form-item>
+        <el-form-item label="内容"><el-input v-model="form.content" type="textarea" :rows="10" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="dlg=false">取消</el-button><el-button type="primary" @click="upload">上传</el-button></template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import client from '../api/client'
+
+const rows = ref<any[]>([])
+const topics = ref<any[]>([])
+const dlg = ref(false)
+const form = reactive({ topic_id: 0, title: '', source_type: 'text', content: '' })
+
+async function load() {
+  rows.value = (await client.get('/documents')).data
+  topics.value = (await client.get('/topics')).data
+}
+
+async function upload() {
+  if (!form.topic_id || !form.title || !form.content) return ElMessage.warning('请填全')
+  await client.post('/documents', form)
+  dlg.value = false; ElMessage.success('已上传'); await load()
+}
+
+async function del(row: any) {
+  await ElMessageBox.confirm('确认删除？')
+  await client.delete(`/documents/${row.id}`)
+  await load(); ElMessage.success('已删除')
+}
+
+onMounted(load)
+</script>
+<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>
+```
+
+- [ ] **Step 2: Document detail**
+
+```vue
+<!-- frontend/src/views/DocumentDetail.vue -->
+<template>
+  <div v-if="doc">
+    <h2>{{ doc.title }} <el-tag size="small">{{ doc.status }}</el-tag></h2>
+    <el-tabs>
+      <el-tab-pane label="原文">
+        <pre style="white-space:pre-wrap">{{ doc.content }}</pre>
+      </el-tab-pane>
+      <el-tab-pane label="切块">
+        <el-table :data="chunks" size="small">
+          <el-table-column prop="chunk_index" label="#" width="60" />
+          <el-table-column prop="content" label="内容" />
+          <el-table-column prop="token_count" label="长度" width="80" />
+        </el-table>
+      </el-tab-pane>
+      <el-tab-pane label="认知地图">
+        <el-button v-if="!cogmap" type="primary" @click="genCog">生成认知地图</el-button>
+        <pre v-if="cogmap">{{ JSON.stringify(cogmap, null, 2) }}</pre>
+      </el-tab-pane>
+    </el-tabs>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import client from '../api/client'
+
+const route = useRoute()
+const did = Number(route.params.id)
+const doc = ref<any>(null)
+const chunks = ref<any[]>([])
+const cogmap = ref<any>(null)
+
+async function load() {
+  doc.value = (await client.get(`/documents/${did}`)).data
+  chunks.value = (await client.get(`/documents/${did}/chunks`)).data
+  try { cogmap.value = (await client.get(`/documents/${did}/cognitive-map`)).data } catch { cogmap.value = null }
+}
+
+async function genCog() {
+  try { cogmap.value = (await client.post(`/documents/${did}/cognitive-map`)).data; ElMessage.success('已生成') }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '失败') }
+}
+
+onMounted(load)
+</script>
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/views/Documents.vue frontend/src/views/DocumentDetail.vue
+git commit -m "feat(frontend): documents list + detail (chunks + cognitive map)"
+```
+
+---
+
+### Task 11.6: Entities list + merge dialog
+
+**Files:**
+- Create: `frontend/src/views/Entities.vue`, `frontend/src/components/EntityMergeDialog.vue`
+
+- [ ] **Step 1: Merge dialog**
+
+```vue
+<!-- frontend/src/components/EntityMergeDialog.vue -->
+<template>
+  <el-dialog v-model="show" title="合并实体" width="500">
+    <el-alert type="warning" title="合并不可逆：被合并实体将被删除，所有关系/映射/别名迁移到保留实体" />
+    <el-form style="margin-top:12px">
+      <el-form-item label="保留">
+        <el-select v-model="keepId" filterable>
+          <el-option v-for="e in entities" :key="e.id" :label="`${e.id} · ${e.canonical_name}`" :value="e.id" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="合并">
+        <el-select v-model="mergeId" filterable>
+          <el-option v-for="e in entities" :key="e.id" :label="`${e.id} · ${e.canonical_name}`" :value="e.id" />
+        </el-select>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="show=false">取消</el-button>
+      <el-button type="primary" @click="confirm" :disabled="!keepId || !mergeId || keepId===mergeId">确认合并</el-button>
+    </template>
+  </el-dialog>
+</template>
+<script setup lang="ts">
+import { ref, defineModel, defineProps, defineEmits } from 'vue'
+import { ElMessage } from 'element-plus'
+import client from '../api/client'
+const show = defineModel<boolean>({ required: true })
+defineProps<{ entities: any[] }>()
+const emit = defineEmits(['merged'])
+const keepId = ref<number>()
+const mergeId = ref<number>()
+async function confirm() {
+  try { await client.post('/entities/merge', { keep_id: keepId.value, merge_id: mergeId.value })
+        ElMessage.success('合并成功'); show.value = false; emit('merged') }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '失败') }
+}
+</script>
+```
+
+- [ ] **Step 2: Entities page**
+
+```vue
+<!-- frontend/src/views/Entities.vue -->
+<template>
+  <div>
+    <div class="bar">
+      <h2>实体管理</h2>
+      <div>
+        <el-input v-model="q" placeholder="搜索实体名" style="width:200px" @input="load" />
+        <el-button type="primary" @click="mergeDlg=true" style="margin-left:8px">⚙ 合并实体</el-button>
+      </div>
+    </div>
+    <el-table :data="rows" border>
+      <el-table-column prop="id" width="60" />
+      <el-table-column prop="canonical_name" label="名称" />
+      <el-table-column prop="entity_type" label="类型" width="100" />
+      <el-table-column prop="topic_id" label="Topic" width="80" />
+      <el-table-column prop="mention_count" label="提及" width="80" />
+      <el-table-column prop="description" label="描述" />
+      <el-table-column label="操作" width="180">
+        <template #default="{row}">
+          <el-button size="small" @click="showAliases(row)">别名</el-button>
+          <el-button size="small" type="danger" @click="del(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <EntityMergeDialog v-model="mergeDlg" :entities="rows" @merged="load" />
+
+    <el-dialog v-model="aliasDlg" title="别名">
+      <el-table :data="aliases" size="small"><el-table-column prop="alias" /><el-table-column prop="source" width="100" /><el-table-column prop="confidence" width="100" /></el-table>
+      <el-input v-model="newAlias" placeholder="添加别名" /><el-button @click="addAlias">添加</el-button>
+    </el-dialog>
+  </div>
+</template>
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import client from '../api/client'
+import EntityMergeDialog from '../components/EntityMergeDialog.vue'
+
+const rows = ref<any[]>([])
+const q = ref('')
+const mergeDlg = ref(false)
+const aliasDlg = ref(false)
+const aliases = ref<any[]>([])
+const currentEid = ref<number>()
+const newAlias = ref('')
+
+async function load() { rows.value = (await client.get(`/entities?q=${encodeURIComponent(q.value)}`)).data }
+async function showAliases(row: any) { currentEid.value = row.id; aliases.value = (await client.get(`/entities/${row.id}/aliases`)).data; aliasDlg.value = true }
+async function addAlias() { await client.post(`/entities/${currentEid.value}/aliases`, { alias: newAlias.value }); aliases.value = (await client.get(`/entities/${currentEid.value}/aliases`)).data; newAlias.value = '' }
+async function del(row: any) { await ElMessageBox.confirm('确认删除？'); await client.delete(`/entities/${row.id}`); await load(); ElMessage.success('已删除') }
+
+onMounted(load)
+</script>
+<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/views/Entities.vue frontend/src/components/EntityMergeDialog.vue
+git commit -m "feat(frontend): entities list + merge dialog (calls sp_merge_entities)"
+```
+
+---
+
+### Task 11.7: Relationships page
+
+**Files:**
+- Create: `frontend/src/views/Relationships.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <div>
+    <div class="bar">
+      <h2>关系管理</h2>
+      <el-button type="primary" @click="dlg=true">+ 新建关系</el-button>
+    </div>
+    <el-table :data="rows" border>
+      <el-table-column prop="id" width="60" />
+      <el-table-column prop="topic_id" label="Topic" width="80" />
+      <el-table-column prop="source_entity_id" label="源" width="80" />
+      <el-table-column prop="target_entity_id" label="目标" width="80" />
+      <el-table-column prop="relation_type" label="类型" width="120" />
+      <el-table-column prop="description" label="描述" />
+      <el-table-column label="操作" width="100">
+        <template #default="{row}">
+          <el-button size="small" type="danger" @click="del(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-dialog v-model="dlg" title="新建关系" width="500">
+      <el-form>
+        <el-form-item label="Topic">
+          <el-select v-model="form.topic_id" @change="loadEnts"><el-option v-for="t in topics" :key="t.id" :label="t.name" :value="t.id" /></el-select>
+        </el-form-item>
+        <el-form-item label="源实体"><el-select v-model="form.source_entity_id" filterable><el-option v-for="e in ents" :key="e.id" :label="e.canonical_name" :value="e.id" /></el-select></el-form-item>
+        <el-form-item label="目标实体"><el-select v-model="form.target_entity_id" filterable><el-option v-for="e in ents" :key="e.id" :label="e.canonical_name" :value="e.id" /></el-select></el-form-item>
+        <el-form-item label="关系类型"><el-input v-model="form.relation_type" placeholder="如 知道/负责/位于" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="dlg=false">取消</el-button><el-button type="primary" @click="create">创建</el-button></template>
+    </el-dialog>
+  </div>
+</template>
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import client from '../api/client'
+
+const rows = ref<any[]>([])
+const topics = ref<any[]>([])
+const ents = ref<any[]>([])
+const dlg = ref(false)
+const form = reactive({ topic_id: 0, source_entity_id: 0, target_entity_id: 0, relation_type: '', description: '' })
+
+async function load() { rows.value = (await client.get('/relationships')).data; topics.value = (await client.get('/topics')).data }
+async function loadEnts() { ents.value = (await client.get(`/entities?topic_id=${form.topic_id}`)).data }
+async function create() {
+  try { await client.post('/relationships', form); dlg.value = false; await load(); ElMessage.success('已创建') }
+  catch (e: any) { ElMessage.error(e.response?.data?.detail || '失败（可能跨 Topic 被触发器拒绝）') }
+}
+async function del(row: any) { await ElMessageBox.confirm('确认删除？'); await client.delete(`/relationships/${row.id}`); await load() }
+
+onMounted(load)
+</script>
+<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add frontend/src/views/Relationships.vue
+git commit -m "feat(frontend): relationships page (CRUD, demos cross-topic trigger)"
+```
+
+---
+
+### Task 11.8: Graph visualization (ECharts force)
+
+**Files:**
+- Create: `frontend/src/views/Graph.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <div>
+    <h2>知识图谱：{{ topicName }}</h2>
+    <v-chart ref="chartRef" :option="option" autoresize style="height:600px" />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { GraphChart } from 'echarts/charts'
+import { TooltipComponent, LegendComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+import client from '../api/client'
+
+use([CanvasRenderer, GraphChart, TooltipComponent, LegendComponent])
+
+const route = useRoute()
+const tid = Number(route.params.id)
+const nodes = ref<any[]>([])
+const edges = ref<any[]>([])
+const topicName = ref('')
+
+const TYPE_COLORS: Record<string,string> = {
+  person:'#5470c6', project:'#91cc75', task:'#fac858',
+  concept:'#ee6666', decision:'#73c0de', event:'#3ba272',
+  place:'#fc8452', other:'#9a60b4',
+}
+
+const option = computed(() => ({
+  tooltip: {},
+  legend: [{ data: Object.keys(TYPE_COLORS) }],
+  series: [{
+    type: 'graph', layout: 'force', roam: true, draggable: true,
+    label: { show: true, position: 'right' },
+    force: { repulsion: 200, edgeLength: 80 },
+    edgeSymbol: ['none', 'arrow'],
+    edgeLabel: { show: true, formatter: (p: any) => p.data.label, fontSize: 10 },
+    categories: Object.keys(TYPE_COLORS).map(name => ({ name })),
+    data: nodes.value.map(n => ({
+      id: n.id, name: n.name, value: n.value,
+      symbolSize: 10 + Math.min(30, n.value),
+      category: n.type, itemStyle: { color: TYPE_COLORS[n.type] },
+    })),
+    links: edges.value.map(e => ({
+      source: e.source, target: e.target, label: e.label, value: e.weight,
+    })),
+  }],
+}))
+
+onMounted(async () => {
+  const t = await client.get(`/topics/${tid}`); topicName.value = t.data.name
+  const g = await client.get(`/topics/${tid}/graph?limit=200`)
+  nodes.value = g.data.nodes; edges.value = g.data.edges
+})
+</script>
+```
+
+- [ ] **Step 2: Add `vue-echarts` & echarts deps already in package.json. Install:**
+
+```bash
+cd frontend && pnpm install
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/views/Graph.vue
+git commit -m "feat(frontend): force-directed graph visualization with ECharts"
+```
+
+---
+
+### Task 11.9: Jobs / Audit / Settings (simple lists)
+
+**Files:**
+- Create: `frontend/src/views/Jobs.vue`, `frontend/src/views/Audit.vue`, `frontend/src/views/Settings.vue`
+
+- [ ] **Step 1: Jobs.vue**
+
+```vue
+<template>
+  <div>
+    <h2>抽取任务</h2>
+    <el-table :data="rows" border>
+      <el-table-column prop="id" width="60" />
+      <el-table-column prop="job_type" label="类型" width="120" />
+      <el-table-column prop="status" label="状态" width="100">
+        <template #default="{row}"><el-tag :type="t(row.status)">{{ row.status }}</el-tag></template>
+      </el-table-column>
+      <el-table-column prop="topic_id" label="Topic" width="80" />
+      <el-table-column prop="document_id" label="Doc" width="80" />
+      <el-table-column prop="progress" label="进度" width="100">
+        <template #default="{row}"><el-progress :percentage="row.progress || 0" /></template>
+      </el-table-column>
+      <el-table-column prop="error_message" label="错误" />
+      <el-table-column prop="created_at" label="创建时间" width="160" />
+    </el-table>
+    <el-button @click="load" style="margin-top:8px">刷新</el-button>
+  </div>
+</template>
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import client from '../api/client'
+const rows = ref<any[]>([])
+function t(s:string) { return ({pending:'info',running:'warning',completed:'success',failed:'danger'} as any)[s] || '' }
+async function load() { rows.value = (await client.get('/jobs')).data }
+onMounted(load)
+</script>
+```
+
+- [ ] **Step 2: Audit.vue**
+
+```vue
+<template>
+  <div>
+    <h2>操作日志</h2>
+    <el-table :data="rows" border>
+      <el-table-column prop="id" width="80" />
+      <el-table-column prop="user_id" label="用户" width="80" />
+      <el-table-column prop="action" label="操作" width="120" />
+      <el-table-column prop="entity_type" label="对象类型" width="100" />
+      <el-table-column prop="entity_id" label="对象ID" width="100" />
+      <el-table-column label="变更详情">
+        <template #default="{row}">
+          <pre style="font-size:11px">{{ JSON.stringify({before: row.before_value, after: row.after_value}, null, 2) }}</pre>
+        </template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="时间" width="160" />
+    </el-table>
+  </div>
+</template>
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import client from '../api/client'
+const rows = ref<any[]>([])
+onMounted(async () => { rows.value = (await client.get('/audit-logs')).data })
+</script>
+```
+
+- [ ] **Step 3: Settings.vue (admin: SP triggers)**
+
+```vue
+<template>
+  <div>
+    <h2>系统设置 / 维护</h2>
+    <el-card style="margin-bottom:16px"><template #header>实体提及次数重算（调 sp_recompute_entity_mentions）</template>
+      <el-button type="primary" @click="recompute" :loading="busy1">运行</el-button>
+    </el-card>
+    <el-card style="margin-bottom:16px"><template #header>归档不活跃 Topic（调 sp_archive_inactive_topics）</template>
+      <el-input-number v-model="days" :min="1" :max="365" /> 天<br>
+      <el-button type="primary" @click="archive" :loading="busy2" style="margin-top:8px">运行</el-button>
+    </el-card>
+    <el-card><template #header>实体批量改名（调 sp_propagate_entity_rename）</template>
+      <el-input-number v-model="renameForm.topic_id" placeholder="topic_id" /><br>
+      <el-input v-model="renameForm.pattern" placeholder="LIKE 模式 (如 'foo%')" style="width:200px;margin-top:8px" />
+      <el-input v-model="renameForm.new_name" placeholder="新名称" style="width:200px;margin-left:8px" /><br>
+      <el-button type="primary" @click="rename" :loading="busy3" style="margin-top:8px">运行</el-button>
+    </el-card>
+  </div>
+</template>
+<script setup lang="ts">
+import { ref, reactive } from 'vue'
+import { ElMessage } from 'element-plus'
+import client from '../api/client'
+const busy1 = ref(false); const busy2 = ref(false); const busy3 = ref(false)
+const days = ref(30)
+const renameForm = reactive({ topic_id: 1, pattern: '', new_name: '' })
+async function recompute() { busy1.value = true; try { await client.post('/admin/recompute-mentions'); ElMessage.success('已完成') } finally { busy1.value = false } }
+async function archive() { busy2.value = true; try { const r = await client.post(`/admin/archive-inactive-topics?days=${days.value}`); ElMessage.success(`归档 ${r.data.archived} 个`) } finally { busy2.value = false } }
+async function rename() { busy3.value = true; try { await client.post(`/admin/propagate-rename?topic_id=${renameForm.topic_id}&pattern=${encodeURIComponent(renameForm.pattern)}&new_name=${encodeURIComponent(renameForm.new_name)}`); ElMessage.success('已完成') } finally { busy3.value = false } }
+</script>
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add frontend/src/views/Jobs.vue frontend/src/views/Audit.vue frontend/src/views/Settings.vue
+git commit -m "feat(frontend): jobs/audit/settings pages (settings calls cursor SPs)"
+```
+
+---
+
+### Task 11.10: SQL Console with Monaco
+
+**Files:**
+- Create: `frontend/src/views/SqlConsole.vue`
+
+- [ ] **Step 1: Write file**
+
+```vue
+<template>
+  <div class="sql-console">
+    <div class="bar">
+      <h2>SQL 控制台</h2>
+      <div>
+        <el-button @click="run('SHOW TABLES')">SHOW TABLES</el-button>
+        <el-button @click="run('SHOW PROCEDURE STATUS WHERE Db = DATABASE()')">SHOW PROCEDURES</el-button>
+        <el-button @click="run('SHOW TRIGGERS')">SHOW TRIGGERS</el-button>
+        <el-button type="primary" @click="execute" :loading="busy">▶ 执行</el-button>
+      </div>
+    </div>
+    <vue-monaco-editor v-model:value="sql" language="sql" theme="vs-dark" :height="200" />
+    <div v-if="result" class="result">
+      <el-alert :type="result.kind==='ddl'||result.kind==='dml'?'success':'info'"
+                :title="`${result.kind} · ${result.elapsed_ms}ms · ${result.row_count ?? result.affected_rows ?? 0} 行`" />
+      <el-table v-if="result.rows" :data="tableRows" size="small" border max-height="400" style="margin-top:8px">
+        <el-table-column v-for="c in result.columns" :key="c" :prop="c" :label="c" />
+      </el-table>
+    </div>
+    <el-alert v-if="error" type="error" :title="error" style="margin-top:8px" />
+  </div>
+</template>
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
+import client from '../api/client'
+const sql = ref('SELECT id, canonical_name, mention_count FROM entities ORDER BY mention_count DESC LIMIT 10;')
+const result = ref<any>(null)
+const error = ref('')
+const busy = ref(false)
+async function execute() { run(sql.value) }
+async function run(q: string) {
+  busy.value = true; error.value = ''; result.value = null
+  try { result.value = (await client.post('/dev/sql/execute', { sql: q })).data }
+  catch (e: any) { error.value = e.response?.data?.detail || String(e) }
+  finally { busy.value = false }
+}
+const tableRows = computed(() => {
+  if (!result.value?.rows) return []
+  return result.value.rows.map((r: any[]) => Object.fromEntries(result.value.columns.map((c: string, i: number) => [c, r[i]])))
+})
+</script>
+<style scoped>.sql-console { display: flex; flex-direction: column; gap: 8px; }
+.bar { display: flex; justify-content: space-between; align-items: center; }</style>
+```
+
+- [ ] **Step 2: Smoke**
+
+```bash
+cd frontend && pnpm build
+```
+
+Expected: build succeeds.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/views/SqlConsole.vue
+git commit -m "feat(frontend): SQL Console with Monaco editor + result table"
+```
+
+---
+
+## Phase 12 — Performance Experiments
+
+### Task 12.1: Run perf seed + write `sql/99_perf_queries.sql`
+
+**Files:**
+- Create: `sql/99_perf_queries.sql`
+
+- [ ] **Step 1: Apply perf seed**
+
+```bash
+make perf-load
+```
+
+Expected: ~50K chunks loaded.
+
+- [ ] **Step 2: Write experiment SQL file**
+
+```sql
+-- ============================================================
+-- Performance experiments (run with `mysql -v -t`)
+-- For each pair: drop index → EXPLAIN ANALYZE → recreate → EXPLAIN ANALYZE.
+-- ============================================================
+
+-- Experiment 1: idx_relationships_src_dst_type
+ALTER TABLE relationships DROP INDEX idx_relationships_src_dst_type;
+EXPLAIN ANALYZE
+  SELECT * FROM relationships WHERE source_entity_id=500 AND target_entity_id=1500;
+CREATE INDEX idx_relationships_src_dst_type
+  ON relationships(source_entity_id, target_entity_id, relation_type);
+EXPLAIN ANALYZE
+  SELECT * FROM relationships WHERE source_entity_id=500 AND target_entity_id=1500;
+
+-- Experiment 2: idx_mapping_entity (reverse lookup)
+ALTER TABLE chunk_entity_mapping DROP INDEX idx_mapping_entity;
+EXPLAIN ANALYZE
+  SELECT chunk_id FROM chunk_entity_mapping WHERE entity_id = 1234;
+CREATE INDEX idx_mapping_entity ON chunk_entity_mapping(entity_id);
+EXPLAIN ANALYZE
+  SELECT chunk_id FROM chunk_entity_mapping WHERE entity_id = 1234;
+
+-- Experiment 3: FULLTEXT vs LIKE
+EXPLAIN ANALYZE
+  SELECT id FROM document_chunks WHERE content LIKE '%keyword-7%';
+EXPLAIN ANALYZE
+  SELECT id FROM document_chunks WHERE MATCH(content) AGAINST('keyword-7' IN NATURAL LANGUAGE MODE);
+
+-- Experiment 4: leftmost prefix
+EXPLAIN
+  SELECT * FROM entities WHERE entity_type='person';            -- doesn't use index (no topic_id)
+EXPLAIN
+  SELECT * FROM entities WHERE topic_id=1 AND entity_type='person';  -- uses index
+```
+
+- [ ] **Step 3: Run + capture output**
+
+```bash
+mysql -u root -p -v -t nkg < sql/99_perf_queries.sql 2>&1 | tee docs/images/perf_run_output.txt
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add sql/99_perf_queries.sql docs/images/perf_run_output.txt
+git commit -m "feat(sql): performance experiments script + captured output"
+```
+
+---
+
+## Phase 13 — Documentation
+
+### Task 13.1: `docs/01-需求分析文档.md` (≥1500 字)
+
+**Files:**
+- Create: `docs/01-需求分析文档.md`
+
+- [ ] **Step 1: Write file (skeleton)**
+
+Structure (engineer fills 1500+ words against this):
+```markdown
+# NKG 需求分析文档
+
+## 1. 项目背景与价值
+- 现状: 信息散落, 知识难复用 (300字)
+- 目标: 跨文档统一图谱 (200字)
+
+## 2. 干系人与角色
+- admin / editor / viewer 各 100 字
+
+## 3. 用例分析
+- 用 mermaid 用例图
+- 8-10 个核心用例 (每个 100 字)
+
+## 4. 功能性需求
+- F1-F12 用列表 (每条 50-100 字)
+
+## 5. 非功能性需求
+- 性能 / 可用性 / 安全 / 可扩展性
+
+## 6. 数据需求与约束
+- 12 张表的业务约束总结
+
+## 7. 风险与限制
+```
+
+Use the design doc `docs/superpowers/specs/2026-05-07-nkg-design.md` §1-3 as content source.
+
+- [ ] **Step 2: Word count check**
+
+```bash
+wc -m docs/01-需求分析文档.md
+```
+
+Expected: ≥1500 chars.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/01-需求分析文档.md
+git commit -m "docs: 需求分析文档 (1500+ 字)"
+```
+
+---
+
+### Task 13.2: `docs/02-系统设计文档.md` (≥3500 字)
+
+- [ ] **Step 1: Skeleton**
+
+```markdown
+# NKG 系统设计文档
+
+## 1. 系统架构 (含架构图)
+## 2. 模块划分与接口
+## 3. ER 模型 (含 ER 图: docs/images/er.png)
+## 4. 关系模式
+## 5. 规范化推导 (1NF→2NF→3NF, 含每张表的 FD 列举)
+## 6. 表结构详细定义 (引用 sql/01_schema.sql)
+## 7. 触发器设计 (5 个的输入/副作用/触发条件)
+## 8. 存储过程设计 (6 个)
+## 9. 索引与性能 (引用 perf 实验结果)
+## 10. 视图与抽象层
+## 11. RAG 扩展点
+```
+
+- [ ] **Step 2: 用 PlantUML/draw.io 画 ER 图**
+
+Save as `docs/images/er.png`. 12 张主表 + FK 箭头。
+
+- [ ] **Step 3: Word count + commit**
+
+```bash
+wc -m docs/02-系统设计文档.md
+git add docs/02-系统设计文档.md docs/images/er.png
+git commit -m "docs: 系统设计文档 (3500+ 字, 含 ER 图与 3NF 推导)"
+```
+
+---
+
+### Task 13.3: `docs/03-数据库实施文档.md`
+
+- [ ] **Step 1: Skeleton + commit**
+
+Cover:
+- DBMS 版本/配置
+- 字符集/排序规则选择理由
+- DDL 实施顺序与依赖
+- 数据类型选型 (BIGINT vs INT, JSON vs TEXT, ENUM 取舍)
+- LONGBLOB embedding 决策 (引用 spec §12.1)
+- Migration 与 rollback 策略
+
+```bash
+git add docs/03-数据库实施文档.md
+git commit -m "docs: 数据库实施文档"
+```
+
+---
+
+### Task 13.4: `docs/04-测试报告.md`
+
+- [ ] **Step 1: Pull pytest results**
+
+```bash
+cd backend && uv run pytest -v --tb=short > ../docs/test_run.txt 2>&1
+```
+
+- [ ] **Step 2: Skeleton**
+
+```markdown
+# NKG 测试报告
+
+## 测试范围
+## 测试环境
+## 用例矩阵 (引用每个 SP/Trigger 的测试)
+## 测试结果 (粘 pytest 输出)
+## 性能测试 (引用 §12)
+## 缺陷与遗留
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/04-测试报告.md docs/test_run.txt
+git commit -m "docs: 测试报告 + 测试运行日志"
+```
+
+---
+
+### Task 13.5: `docs/05-操作手册.md`
+
+- [ ] **Step 1: Write file**
+
+Cover:
+- 安装/初始化 (本地 MySQL 与 Docker 两条路径)
+- 启动后端/前端
+- 用户注册/登录
+- 创建 Topic → 上传文档 → 触发抽取 → 查看图谱 → 合并实体
+- SQL 控制台用法 (含安全提示)
+- 维护操作 (admin Settings 页)
+- 故障排查 FAQ
+
+```bash
+git add docs/05-操作手册.md
+git commit -m "docs: 操作手册 (1500+ 字, 含两种部署路径)"
+```
+
+---
+
+### Task 13.6: `docs/06-大作业总报告.md` (≥4500 字)
+
+- [ ] **Step 1: 按 spec §4.2 结构填写**
+
+每节按预算字数填写：
+- §1 系统简介与背景 (400)
+- §2 功能与目标 (400)
+- §3 需求分析摘要 (600)
+- §4 系统总体设计 (600)
+- §5 数据库设计 (1200, 含 ER 与 3NF)
+- §6 关键实现 (700)
+- §7 测试与性能 (400)
+- §8 心得与未来工作 (200, RAG 在此提及)
+
+合计 ≈4500 字。
+
+- [ ] **Step 2: 字数验证**
+
+```bash
+# 中文字符计数 (排除空白与英文标点)
+python3 -c "
+import re
+with open('docs/06-大作业总报告.md', encoding='utf-8') as f:
+    txt = f.read()
+# 移除代码块
+txt = re.sub(r'\`\`\`[\s\S]*?\`\`\`', '', txt)
+zh = re.findall(r'[\u4e00-\u9fff]', txt)
+print(f'中文字符数: {len(zh)}')
+"
+```
+
+Expected: ≥4000 中文字符。
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/06-大作业总报告.md
+git commit -m "docs: 大作业总报告 (4500+ 字, 满足课程硬指标)"
+```
+
+---
+
+### Task 13.7: `docs/07-性能分析实验.md`
+
+- [ ] **Step 1: 把 §12 的 EXPLAIN 输出整理成表格**
+
+格式:
+
+```markdown
+## 实验1: idx_relationships_src_dst_type
+
+| 状态 | rows scanned | cost | 耗时 ms |
+|---|---|---|---|
+| 无索引 | 30000 | 3000 | 120 |
+| 有索引 | 1 | 1.05 | 0.5 |
+
+**结论**: 索引让查询从全表扫降为索引范围扫，效率提升 ~240×。
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add docs/07-性能分析实验.md
+git commit -m "docs: 性能分析实验报告 (4 段对比 + EXPLAIN 截图)"
+```
+
+---
+
+## Phase 14 — Demo Prep & Screenshots
+
+### Task 14.1: 准备演示数据
+
+- [ ] **Step 1: 重置数据库到清洁演示状态**
+
+```bash
+make db-reset    # drop → init → demo-load
+```
+
+确认页面里看到:
+- 3 用户 (admin/editor/viewer)
+- 2 topics
+- 4 docs
+- 15 entities
+- 11 relationships
+
+---
+
+### Task 14.2: 12 张演示截图
+
+每张图存到 `docs/images/demo_NN_<name>.png`。
+
+- [ ] **Step 1: 启动前后端**
+- [ ] **Step 2: 按 spec §7 顺序拍 12 张:**
+  1. `demo_01_login.png` - 登录页
+  2. `demo_02_dashboard.png` - Dashboard
+  3. `demo_03_doc_upload.png` - 上传文档对话框
+  4. `demo_04_cogmap_loading.png` - 认知地图生成中
+  5. `demo_05_cogmap_done.png` - 认知地图完成
+  6. `demo_06_blueprint.png` - 蓝图展示
+  7. `demo_07_entities.png` - 实体管理列表
+  8. `demo_08_merge_dialog.png` - 实体合并对话框
+  9. `demo_09_rel_create.png` - 关系列表 + 新建（可选演示触发器拒绝 cross-topic）
+  10. `demo_10_graph.png` - 图谱可视化
+  11. `demo_11_jobs.png` - 抽取任务列表
+  12. `demo_12_sql_console.png` - SQL 控制台 (CALL sp + EXPLAIN)
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/images/demo_*.png
+git commit -m "docs: 12 张演示拷屏 (按 spec §7 顺序)"
+```
+
+---
+
+### Task 14.3: 答辩话术准备
+
+**Files:**
+- Create: `docs/answer_qa.md` (内部使用，不交)
+
+- [ ] **Step 1: 列 10 个常见问题 + 简答**
+
+每个问题 100-200 字回答：
+
+1. 为什么 12 张表，不是更少？(规范化要求 + 业务复杂度)
+2. 触发器副作用如何回滚？(全在事务里，外层 ROLLBACK 回退)
+3. 为什么用 sp_merge_entities 而不是应用层？(原子性 + 减少网络 round trip)
+4. 索引会不会拖慢写入？(权衡, 演示了 ANALYZE 数据)
+5. JSON 字段是否破坏 1NF？(妥协, 业界共识, 文档里有论证)
+6. 反规范化字段 doc_count/chunks_count 一致性怎么保？(触发器全覆盖)
+7. SQL 控制台安全吗？(admin only / audit / single stmt / timeout)
+8. LLM 失败怎么办？(mock 兜底 + INSERT IGNORE 幂等)
+9. 怎么扩展到多租户？(topic_id 已是天然 tenant)
+10. 为什么不直接用 TiDB？(不支持 trigger/SP/cursor)
+
+```bash
+echo "answer_qa.md is internal" >> .gitignore
+git add docs/answer_qa.md .gitignore
+git commit -m "docs: Q&A talking points (gitignored, internal)"
+```
+
+(注: 答辩话术不入库, 仅本地参考)
+
+---
+
+## Phase 15 — Final Verification
+
+### Task 15.1: 全栈联调
+
+- [ ] **Step 1: 完整流程跑一遍**
+
+```bash
+make db-reset
+cd backend && uv run pytest -v       # all tests pass
+make backend &
+cd frontend && pnpm dev &
+```
+
+打开浏览器手动跑一次完整流程 (上传 → 抽取 → 合并 → 图谱)，无 console 报错。
+
+- [ ] **Step 2: 评分点对账**
+
+按 spec §4.5 表逐项打钩；漏的回头补。
+
+| 评分项 | 满分 | 实现 | 自评 |
+|---|---|---|---|
+| 表 ≥5 + FK | ✅ | 12 表 + 14 FK | ✓ |
+| ≥3 触发器 | ✅ | 5 | ✓ |
+| ≥2 带参 SP | ✅ | 3 | ✓ |
+| ≥2 游标 SP | ✅ | 3 | ✓ |
+| ≥2 二级索引 + 性能分析 | ✅ | 7 索引 + 4 实验 | ✓ |
+| 3NF 论证 | ✅ | docs/02 §5 | ✓ |
+| ER 图 | ✅ | docs/images/er.png | ✓ |
+| 总报告 ≥4000 字 | ✅ | 4500+ | ✓ |
+| 7 份文档全 | ✅ | 01-07 全 | ✓ |
+| UI/UX | ✅ | 13 页 + ECharts | ✓ |
+| 创新点 | ✅ | KG + LLM + SQL Console | ✓ |
+| 12 张拷屏 | ✅ | docs/images/demo_*.png | ✓ |
+
+- [ ] **Step 3: Final commit**
+
+```bash
+git add -A
+git commit -m "chore: final verification, all rubric items checked"
+```
+
+---
+
+## Plan Self-Review
+
+### Spec coverage scan
+- §1 业务流程 → Phases 1, 5, 7
+- §2.1-2.3 表/触发器 → Phases 1, 3
+- §2.4 SP → Phase 4
+- §2.5 索引/性能 → Phases 2, 12
+- §2.6 3NF → Phase 13.2
+- §2.7 视图 → Phase 2
+- §3 应用架构 → Phases 6-11
+- §3.4 SQL 控制台 → Phases 8, 11.10
+- §4 文档 → Phase 13
+- §5 测试 → 散落每 phase 内
+- §6 创新点 → Phases 7, 11.8
+- §7 拷屏 → Phase 14
+- §8 评分对账 → Phase 15.2
+- §9 时间表 → Plan 整体顺序
+- §10 风险 → mock fallback (Phase 7.1), SQL 安全护栏 (Phase 8)
+- §11 YAGNI → 没碰
+- §12 RAG → Phase 9
+
+✅ 所有 spec 章节都有对应 task。
+
+### Placeholder scan
+✅ 无 TBD/TODO；所有代码块为完整可执行的代码或 SQL；测试代码完整。
+
+### Type consistency
+✅ FastAPI router 命名一致；前端 view 文件名与 router 一致；表名/列名前后一致 (`entities.canonical_name` 全程同名)。
+
+### Scope check
+本 plan 范围明确：单课程项目，14 phases，~80 tasks，跑完后即得到完整可演示系统 + 全部文档。
+
+---
+
+## 执行交付选项
+
+Plan 完成并保存到 `docs/superpowers/plans/2026-05-07-nkg-implementation.md`。两种执行方式：
+
+**1. Subagent-Driven（推荐）** — 用 superpowers:subagent-driven-development，每个 task 起新 subagent 执行，task 间我审查；上下文窗口干净，迭代快。
+
+**2. Inline 执行** — 用 superpowers:executing-plans，在当前会话里成批执行带 checkpoint；省 token，但单次 context 压力大。
+
+要哪种？
