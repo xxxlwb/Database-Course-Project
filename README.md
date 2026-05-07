@@ -13,7 +13,7 @@ make demo-load
 cd backend && uv venv && source .venv/bin/activate && uv pip install -e .
 cd .. && make backend  # http://localhost:8000
 
-cd frontend && pnpm install && pnpm dev  # http://localhost:5173
+cd frontend && npm install && npm run dev  # http://localhost:5173
 ```
 
 ## Quick Start (Docker MySQL)
