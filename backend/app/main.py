@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import auth as auth_router
 from .routers import topics as topics_router
 from .routers import documents as documents_router
+from .routers import entities as entities_router
 from .config import settings
 
 app = FastAPI(title="NKG", version="0.1.0")
@@ -18,6 +19,7 @@ app.add_middleware(
 app.include_router(auth_router.router)
 app.include_router(topics_router.router)
 app.include_router(documents_router.router)
+app.include_router(entities_router.router)
 
 
 @app.get("/api/health")
