@@ -1,0 +1,171 @@
+--------------
+-- ============================================================
+--------------
+
+--------------
+-- Performance experiments
+--------------
+
+--------------
+-- For each pair: drop index -> EXPLAIN ANALYZE -> recreate -> EXPLAIN ANALYZE.
+--------------
+
+--------------
+-- ============================================================
+--------------
+
+--------------
+-- Experiment 1: idx_relationships_src_dst_type (lookup by src+dst)
+--------------
+
+--------------
+ALTER TABLE relationships DROP INDEX idx_relationships_src_dst_type
+--------------
+
+ERROR 1553 (HY000) at line 7: Cannot drop index 'idx_relationships_src_dst_type': needed in a foreign key constraint
+--------------
+EXPLAIN ANALYZE
+  SELECT * FROM relationships WHERE source_entity_id=500 AND target_entity_id=1500
+--------------
+
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                                                                   |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Index lookup on relationships using idx_relationships_src_dst_type (source_entity_id = 500, target_entity_id = 1500)  (cost=0.869 rows=1) (actual time=0.0268..0.0268 rows=0 loops=1)
+ |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+--------------
+CREATE INDEX idx_relationships_src_dst_type
+  ON relationships(source_entity_id, target_entity_id, relation_type)
+--------------
+
+ERROR 1061 (42000) at line 10: Duplicate key name 'idx_relationships_src_dst_type'
+--------------
+EXPLAIN ANALYZE
+  SELECT * FROM relationships WHERE source_entity_id=500 AND target_entity_id=1500
+--------------
+
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                                                                   |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Index lookup on relationships using idx_relationships_src_dst_type (source_entity_id = 500, target_entity_id = 1500)  (cost=0.869 rows=1) (actual time=0.0136..0.0136 rows=0 loops=1)
+ |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+--------------
+-- Experiment 2: idx_mapping_entity (reverse lookup)
+--------------
+
+--------------
+ALTER TABLE chunk_entity_mapping DROP INDEX idx_mapping_entity
+--------------
+
+ERROR 1553 (HY000) at line 16: Cannot drop index 'idx_mapping_entity': needed in a foreign key constraint
+--------------
+EXPLAIN ANALYZE
+  SELECT chunk_id FROM chunk_entity_mapping WHERE entity_id = 1234
+--------------
+
++----------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                            |
++----------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Index lookup on chunk_entity_mapping using idx_mapping_entity (entity_id = 1234)  (cost=1.75 rows=5) (actual time=0.442..0.445 rows=5 loops=1)
+ |
++----------------------------------------------------------------------------------------------------------------------------------------------------+
+--------------
+CREATE INDEX idx_mapping_entity ON chunk_entity_mapping(entity_id)
+--------------
+
+ERROR 1061 (42000) at line 19: Duplicate key name 'idx_mapping_entity'
+--------------
+EXPLAIN ANALYZE
+  SELECT chunk_id FROM chunk_entity_mapping WHERE entity_id = 1234
+--------------
+
++-----------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                             |
++-----------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Index lookup on chunk_entity_mapping using idx_mapping_entity (entity_id = 1234)  (cost=1.75 rows=5) (actual time=0.0263..0.029 rows=5 loops=1)
+ |
++-----------------------------------------------------------------------------------------------------------------------------------------------------+
+--------------
+-- Experiment 3: FULLTEXT vs LIKE
+--------------
+
+--------------
+EXPLAIN ANALYZE
+  SELECT id FROM document_chunks WHERE content LIKE '%keyword-7%'
+--------------
+
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                                                                                                            |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Filter: (document_chunks.content like '%keyword-7%')  (cost=5389 rows=5525) (actual time=4.21..58 rows=1000 loops=1)
+    -> Table scan on document_chunks  (cost=5389 rows=49728) (actual time=0.507..35.5 rows=50008 loops=1)
+ |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+--------------
+EXPLAIN ANALYZE
+  SELECT id FROM document_chunks WHERE MATCH(content) AGAINST('keyword-7' IN NATURAL LANGUAGE MODE)
+--------------
+
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                                                                                                                                                                            |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Filter: (match document_chunks.content against ('keyword-7'))  (cost=0.35 rows=1) (actual time=10.4..48.6 rows=50000 loops=1)
+    -> Full-text index search on document_chunks using ft_chunks_content (content = 'keyword-7')  (cost=0.35 rows=1) (actual time=10.4..46.9 rows=50000 loops=1)
+ |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+--------------
+-- Experiment 4: leftmost prefix demo
+--------------
+
+--------------
+EXPLAIN
+  SELECT * FROM entities WHERE entity_type='person'
+--------------
+
++----------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                    |
++----------------------------------------------------------------------------------------------------------------------------+
+| -> Filter: (entities.entity_type = 'person')  (cost=1119 rows=1279)
+    -> Table scan on entities  (cost=1119 rows=10233)
+ |
++----------------------------------------------------------------------------------------------------------------------------+
+--------------
+EXPLAIN
+  SELECT * FROM entities WHERE topic_id=1 AND entity_type='person'
+--------------
+
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| EXPLAIN                                                                                                                                                                            |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| -> Index lookup on entities using uq_entity_topic_type_name (topic_id = 1, entity_type = 'person'), with index condition: (entities.entity_type = 'person')  (cost=412 rows=1256)
+ |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+
+-- ============================================================
+-- NOTES on observed behavior (added post-run; SQL was NOT modified):
+-- ============================================================
+-- Exp 1: DROP failed with ERROR 1553 because idx_relationships_src_dst_type
+--   is the only index whose leftmost column is source_entity_id, so the FK
+--   constraint requires it. The "no-index" baseline could not be measured;
+--   with the index the lookup is ~0.027ms (cost=0.869, 1 row).
+--
+-- Exp 2: DROP failed with ERROR 1553 for the same reason --
+--   idx_mapping_entity covers the FK on entity_id and cannot be dropped.
+--   With the index the lookup is ~0.03-0.44ms (cost=1.75, 5 rows).
+--
+-- Exp 3: LIKE '%keyword-7%' did a full table scan
+--   (rows=50008, time=58ms). MATCH ... AGAINST used ft_chunks_content
+--   FULLTEXT (rows=50000, time=46.9ms). The seed data places "keyword-7"
+--   in ~every chunk, so both return ~all rows -- the FULLTEXT advantage
+--   would be larger on a more selective term, but the plan still shows
+--   the FULLTEXT index lookup vs a table scan, which is the intended
+--   demonstration.
+--
+-- Exp 4: Without topic_id the optimizer chose a table scan
+--   (cost=1119, rows=10233) because entity_type is NOT the leftmost
+--   column of idx_entities_topic_type_name(topic_id, entity_type, ...).
+--   With topic_id added, MySQL switched to an index lookup using
+--   uq_entity_topic_type_name (the UNIQUE composite covering the same
+--   prefix), cost=412, rows=1256 -- demonstrating leftmost-prefix usage.
