@@ -1,10 +1,10 @@
 -- Demo data for in-class showcase
 
--- 3 users (admin / editor / viewer); password hashes are bcrypt of "demo123"
+-- 3 users (admin / editor / viewer); password = "demo123" (bcrypt cost 12)
 INSERT INTO users (username, password_hash, email, role) VALUES
-('admin',  '$2b$12$KIXwTUf5g2qQH5JfM5zZ.O6XQqK7VxC3mC4vXYa5JXz8w3EYtZxN.', 'admin@nkg.local',  'admin'),
-('editor', '$2b$12$KIXwTUf5g2qQH5JfM5zZ.O6XQqK7VxC3mC4vXYa5JXz8w3EYtZxN.', 'editor@nkg.local', 'editor'),
-('viewer', '$2b$12$KIXwTUf5g2qQH5JfM5zZ.O6XQqK7VxC3mC4vXYa5JXz8w3EYtZxN.', 'viewer@nkg.local', 'viewer');
+('admin',  '$2b$12$ffG9NVW0N429rEcyX1vTeeseg5lpJv.0r8U6Z7WxviZQhZvoNbi1O', 'admin@nkg.local',  'admin'),
+('editor', '$2b$12$8BbswRA.LF2C/j0ps4n0/.xbrU3aK8f3gl9.P3IY3b9qslhsavlUm', 'editor@nkg.local', 'editor'),
+('viewer', '$2b$12$rAVGa0Wpg3AqX6BT4IdPDOwxn5PGZsE5SFzE49PbhrpmsKxEyTIP2', 'viewer@nkg.local', 'viewer');
 
 -- 2 topics
 INSERT INTO topics (name, description, owner_id) VALUES
