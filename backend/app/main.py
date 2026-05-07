@@ -42,3 +42,8 @@ app.include_router(dev_router.router)
 def health():
     return {"status": "ok", "rag_enabled": settings.rag_enabled,
             "sql_console_enabled": settings.sql_console_enabled}
+
+
+if settings.rag_enabled:
+    from .routers import rag as rag_router
+    app.include_router(rag_router.router)
