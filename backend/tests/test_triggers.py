@@ -96,3 +96,30 @@ def test_trigger_entities_rename_marks_blueprint_outdated(db_engine):
             "SELECT COUNT(*) FROM audit_logs WHERE action='rename' AND entity_id=1"
         )).scalar()
         assert audit == 1
+
+
+def test_trigger_chunk_entity_increments_mention(db_engine):
+    with db_engine.connect() as c:
+        _seed_user_topic(c)
+        c.execute(text(
+            "INSERT INTO documents (id, topic_id, uploader_id, title, source_type, content_hash) "
+            "VALUES (1,1,1,'D','text',REPEAT('c',64))"
+        ))
+        c.execute(text(
+            "INSERT INTO document_chunks (id, document_id, chunk_index, content) "
+            "VALUES (1,1,0,'x')"
+        ))
+        c.execute(text(
+            "INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+            "VALUES (1,1,'E','concept')"
+        ))
+        c.commit()
+
+        c.execute(text(
+            "INSERT INTO chunk_entity_mapping (chunk_id, entity_id, occurrences) "
+            "VALUES (1, 1, 3)"
+        ))
+        c.commit()
+
+        m = c.execute(text("SELECT mention_count FROM entities WHERE id=1")).scalar()
+        assert m == 3

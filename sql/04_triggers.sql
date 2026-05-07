@@ -88,3 +88,18 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+-- 5) After chunk-entity mapping inserted: bump entity mention_count
+DROP TRIGGER IF EXISTS trg_chunk_entity_after_insert$$
+CREATE TRIGGER trg_chunk_entity_after_insert
+AFTER INSERT ON chunk_entity_mapping
+FOR EACH ROW
+BEGIN
+    UPDATE entities
+       SET mention_count = mention_count + NEW.occurrences
+     WHERE id = NEW.entity_id;
+END$$
+
+DELIMITER ;
