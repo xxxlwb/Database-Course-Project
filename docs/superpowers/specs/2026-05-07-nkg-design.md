@@ -644,8 +644,93 @@ make db-init
 
 - 多租户 / SaaS（仅单实例）
 - OAuth / SSO（仅本地 JWT）
-- 全文 RAG 问答（图谱可视化即可，不做对话式问答）
 - 实时协同编辑
 - 移动端
 - 国际化（仅中文 UI）
 - LLM 模型微调
+
+---
+
+## 12. RAG 预留（本期不实现、不测试）
+
+为了不让后续做 RAG 时改大表结构，**本期保留 schema 与 API 骨架**，但**不写业务逻辑、不写测试、文档里也不计入功能分**。所有 RAG 相关入口都被 feature flag 关掉，避免误触发抽取。
+
+### 12.1 预留表（2 张，DDL 进 `sql/01_schema.sql`，不在 12 张主表统计内）
+
+```sql
+-- 文档块向量（与 document_chunks 1:1）
+chunk_embeddings(
+    chunk_id BIGINT PRIMARY KEY,
+    embedding LONGBLOB NOT NULL,                    -- float32[] 紧凑存储
+    embedding_dim INT NOT NULL,                     -- e.g. 1024 / 1536
+    model VARCHAR(64) NOT NULL,                     -- e.g. "minimax-embedding-001"
+    norm DECIMAL(10,6),                             -- 预算 L2 norm，加速余弦
+    created_at DATETIME,
+    FOREIGN KEY (chunk_id) REFERENCES document_chunks(id) ON DELETE CASCADE
+)
+
+-- 实体向量（与 entities 1:1）
+entity_embeddings(
+    entity_id BIGINT PRIMARY KEY,
+    embedding LONGBLOB NOT NULL,
+    embedding_dim INT NOT NULL,
+    model VARCHAR(64) NOT NULL,
+    norm DECIMAL(10,6),
+    created_at DATETIME,
+    FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+)
+```
+
+**为什么用 LONGBLOB 而不是 JSON / VECTOR**：
+- MySQL 8.0 无原生 VECTOR 类型（9.x 才有）
+- JSON 数组每维一个 ASCII 数字，4096 维约 80KB；LONGBLOB float32 仅 16KB，4×节省
+- 明文 BLOB 不利于人工排查，但本期不做检索演示，可接受
+- 后续若升级 MySQL 9 / 接入 TiDB Vector / Milvus，仅需改这两张表的列定义和 ORM mapper
+
+**索引**：本期**不建** ANN 索引（MySQL 8 无原生支持）；预留 `idx_chunk_emb_model`、`idx_entity_emb_model` 普通 B+树，按 model 过滤。
+
+### 12.2 预留 API（返回 501 Not Implemented）
+
+```
+POST /api/rag/embed/chunks       # 批量 embed，feature flag 关闭
+POST /api/rag/embed/entities
+POST /api/rag/search/chunks      # 给定 query，返回 top-k chunks
+POST /api/rag/search/entities    # 给定 query，返回 top-k entities
+POST /api/rag/answer             # RAG 问答（chunks 检索 + LLM 合成）
+```
+
+骨架文件：`backend/app/services/rag.py`、`backend/app/routers/rag.py`。
+路由注册时按 `RAG_ENABLED` 决定是否挂载；默认关闭。
+
+### 12.3 预留前端
+
+- `frontend/src/views/RagSearch.vue` 占位页面
+- 路由 `/rag` 仅 admin 可见，feature flag 关闭时显示"模块预留中，本期不可用"
+- 不进 13 页主导航；走"实验性功能"折叠菜单
+
+### 12.4 Feature Flag
+
+```
+# .env.example
+RAG_ENABLED=false              # 本期默认关闭
+EMBEDDING_MODEL=minimax-embedding-001
+EMBEDDING_DIM=1024
+```
+
+后端启动时读取，false → 路由不注册、UI 隐藏、不消耗任何 LLM 配额。
+
+### 12.5 文档处理
+
+- 主报告 06 中"未来工作"节列 RAG 为下一阶段目标，**1 段话**说明
+- 设计文档 02 中加一节"扩展点：向量与 RAG"，描述 schema 与升级路径，**不超过 1 页**
+- 测试报告 04 **不**列 RAG 用例
+- 评分对账表中 RAG 不计入任何子项
+
+### 12.6 升级路径（仅备忘，不在本期工作量内）
+
+未来切到 MySQL 9 / TiDB / Milvus 时，需要改：
+1. 两张 embeddings 表的列类型（BLOB → VECTOR）
+2. 添加 ANN 索引（HNSW / IVF）
+3. 实现 `services/rag.py` 中的检索逻辑
+4. 打开 `RAG_ENABLED`，前端 `RagSearch.vue` 实现搜索表单和结果列表
+5. 跑 RAG 端到端测试
