@@ -102,3 +102,23 @@ def test_sp_recompute_entity_mentions(db_engine):
     assert rows[1] == 8, f"entity 1 expected 8, got {rows[1]}"
     assert rows[2] == 7, f"entity 2 expected 7, got {rows[2]}"
     raw.close()
+
+
+def test_sp_archive_inactive_topics(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    # Topic 1: stale (60 days old). Topic 2: fresh.
+    cur.execute("INSERT INTO topics (id, name, owner_id, updated_at) "
+                "VALUES (1,'old',1, NOW() - INTERVAL 60 DAY), (2,'new',1, NOW())")
+    raw.commit()
+
+    cur.execute("CALL sp_archive_inactive_topics(30, @cnt)")
+    cur.execute("SELECT @cnt")
+    archived = cur.fetchone()[0]
+    assert archived == 1, f"expected 1 archived, got {archived}"
+
+    cur.execute("SELECT id, is_archived FROM topics ORDER BY id")
+    rows = dict(cur.fetchall())
+    assert rows[1] == 1 and rows[2] == 0
+    raw.close()

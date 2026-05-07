@@ -234,3 +234,37 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_archive_inactive_topics$$
+CREATE PROCEDURE sp_archive_inactive_topics(
+    IN p_days INT,
+    OUT p_archived INT
+)
+BEGIN
+    DECLARE v_tid BIGINT;
+    DECLARE done INT DEFAULT 0;
+    DECLARE cur_t CURSOR FOR
+        SELECT id FROM topics
+         WHERE is_archived = 0
+           AND updated_at < (NOW() - INTERVAL p_days DAY);
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    SET p_archived = 0;
+    IF p_days IS NULL OR p_days < 1 THEN SET p_days = 30; END IF;
+
+    OPEN cur_t;
+    archive_loop: LOOP
+        FETCH cur_t INTO v_tid;
+        IF done = 1 THEN LEAVE archive_loop; END IF;
+
+        UPDATE topics SET is_archived = 1 WHERE id = v_tid;
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_id, after_value)
+        VALUES (NULL, 'archive', 'topic', v_tid, JSON_OBJECT('archived_after_days', p_days));
+        SET p_archived = p_archived + 1;
+    END LOOP;
+    CLOSE cur_t;
+END$$
+
+DELIMITER ;
