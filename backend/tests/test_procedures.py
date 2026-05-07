@@ -54,3 +54,23 @@ def test_sp_merge_entities(db_engine):
     cur.execute("SELECT COUNT(*) FROM audit_logs WHERE action='merge'")
     assert cur.fetchone()[0] == 1
     raw.close()
+
+
+def test_sp_get_entity_neighborhood(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    # Build chain: 1 - 2 - 3 - 4
+    cur.execute("INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+                "VALUES (1,1,'A','person'),(2,1,'B','person'),(3,1,'C','person'),(4,1,'D','person')")
+    cur.execute("INSERT INTO relationships (topic_id, source_entity_id, target_entity_id, relation_type) "
+                "VALUES (1,1,2,'r'),(1,2,3,'r'),(1,3,4,'r')")
+    raw.commit()
+
+    cur.execute("CALL sp_get_entity_neighborhood(1, 2, @cnt)")
+    rows = cur.fetchall()
+    cur.execute("SELECT @cnt")
+    cnt = cur.fetchone()[0]
+    assert cnt == 3, f"expected nodes (1,2,3) (depth 2 from 1), got cnt={cnt}, rows={rows}"
+    raw.close()

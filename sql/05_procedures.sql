@@ -135,3 +135,75 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_get_entity_neighborhood$$
+CREATE PROCEDURE sp_get_entity_neighborhood(
+    IN p_entity_id BIGINT,
+    IN p_depth INT,
+    OUT p_node_count INT
+)
+BEGIN
+    DECLARE v_d INT DEFAULT 0;
+    DECLARE v_added INT DEFAULT 1;
+
+    IF p_depth IS NULL OR p_depth < 1 THEN SET p_depth = 1; END IF;
+    IF p_depth > 5 THEN SET p_depth = 5; END IF;
+
+    -- MySQL forbids referencing the same TEMPORARY TABLE multiple times in
+    -- one query, so we keep the BFS frontier in a separate temp table and
+    -- stage newly discovered nodes in another. Behavior is identical to
+    -- the single-table version: tmp_neighborhood holds (entity_id, distance)
+    -- for every node within p_depth hops.
+    DROP TEMPORARY TABLE IF EXISTS tmp_neighborhood;
+    DROP TEMPORARY TABLE IF EXISTS tmp_frontier;
+    DROP TEMPORARY TABLE IF EXISTS tmp_new_nodes;
+    CREATE TEMPORARY TABLE tmp_neighborhood (
+        entity_id BIGINT PRIMARY KEY,
+        distance INT NOT NULL
+    );
+    CREATE TEMPORARY TABLE tmp_frontier (entity_id BIGINT PRIMARY KEY);
+    CREATE TEMPORARY TABLE tmp_new_nodes (entity_id BIGINT PRIMARY KEY);
+
+    INSERT INTO tmp_neighborhood VALUES (p_entity_id, 0);
+    INSERT INTO tmp_frontier VALUES (p_entity_id);
+
+    WHILE v_d < p_depth AND v_added > 0 DO
+        DELETE FROM tmp_new_nodes;
+
+        -- forward edges: frontier -> target
+        INSERT IGNORE INTO tmp_new_nodes (entity_id)
+        SELECT DISTINCT r.target_entity_id
+          FROM relationships r
+          JOIN tmp_frontier f ON r.source_entity_id = f.entity_id;
+
+        -- reverse edges: source -> frontier
+        INSERT IGNORE INTO tmp_new_nodes (entity_id)
+        SELECT DISTINCT r.source_entity_id
+          FROM relationships r
+          JOIN tmp_frontier f ON r.target_entity_id = f.entity_id;
+
+        -- promote previously unknown nodes into the neighborhood
+        INSERT IGNORE INTO tmp_neighborhood (entity_id, distance)
+        SELECT entity_id, v_d + 1 FROM tmp_new_nodes;
+
+        SET v_added = ROW_COUNT();
+
+        -- next frontier = nodes whose distance is the new layer
+        DELETE FROM tmp_frontier;
+        INSERT INTO tmp_frontier (entity_id)
+        SELECT entity_id FROM tmp_neighborhood WHERE distance = v_d + 1;
+
+        SET v_d = v_d + 1;
+    END WHILE;
+
+    SELECT COUNT(*) INTO p_node_count FROM tmp_neighborhood;
+
+    SELECT n.entity_id, n.distance, e.canonical_name, e.entity_type
+      FROM tmp_neighborhood n
+      JOIN entities e ON e.id = n.entity_id
+     ORDER BY n.distance, n.entity_id;
+END$$
+
+DELIMITER ;
