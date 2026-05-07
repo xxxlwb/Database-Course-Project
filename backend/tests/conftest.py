@@ -73,8 +73,14 @@ def _exec_sql_file(engine, sql_text):
     try:
         cur = raw.cursor()
         for stmt in statements:
-            if stmt and not stmt.startswith("--"):
-                cur.execute(stmt)
+            # Strip leading comment-only / blank lines so a statement
+            # preceded by a "-- N. table_name" header still executes.
+            lines = stmt.splitlines()
+            while lines and (not lines[0].strip() or lines[0].strip().startswith("--")):
+                lines.pop(0)
+            cleaned = "\n".join(lines).strip()
+            if cleaned:
+                cur.execute(cleaned)
         raw.commit()
     finally:
         raw.close()
