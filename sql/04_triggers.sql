@@ -40,3 +40,29 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+-- 3) Before relationship inserted: enforce same-topic + default weight
+DROP TRIGGER IF EXISTS trg_relationships_before_insert$$
+CREATE TRIGGER trg_relationships_before_insert
+BEFORE INSERT ON relationships
+FOR EACH ROW
+BEGIN
+    DECLARE src_topic BIGINT;
+    DECLARE dst_topic BIGINT;
+
+    SELECT topic_id INTO src_topic FROM entities WHERE id = NEW.source_entity_id;
+    SELECT topic_id INTO dst_topic FROM entities WHERE id = NEW.target_entity_id;
+
+    IF src_topic IS NULL OR dst_topic IS NULL OR src_topic <> dst_topic OR src_topic <> NEW.topic_id THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'cross-topic relationship rejected by trigger';
+    END IF;
+
+    IF NEW.weight IS NULL OR NEW.weight = 0 THEN
+        SET NEW.weight = 1.000;
+    END IF;
+END$$
+
+DELIMITER ;

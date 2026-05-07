@@ -51,3 +51,23 @@ def test_trigger_chunks_after_insert(db_engine):
 
         status = c.execute(text("SELECT status FROM documents WHERE id=1")).scalar()
         assert status == "chunking", f"expected status 'chunking', got {status}"
+
+
+def test_trigger_relationships_blocks_cross_topic(db_engine):
+    with db_engine.connect() as c:
+        c.execute(text("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')"))
+        c.execute(text("INSERT INTO topics (id, name, owner_id) VALUES (1,'A',1),(2,'B',1)"))
+        c.execute(text(
+            "INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+            "VALUES (1,1,'X','person'),(2,2,'Y','person')"
+        ))
+        c.commit()
+        try:
+            c.execute(text(
+                "INSERT INTO relationships (topic_id, source_entity_id, target_entity_id, relation_type) "
+                "VALUES (1, 1, 2, 'knows')"
+            ))
+            c.commit()
+            assert False, "expected cross-topic to be rejected"
+        except Exception as e:
+            assert "cross-topic" in str(e) or "45000" in str(e)
