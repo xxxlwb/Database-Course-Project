@@ -57,3 +57,81 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_merge_entities$$
+CREATE PROCEDURE sp_merge_entities(
+    IN p_keep_id BIGINT,
+    IN p_merge_id BIGINT,
+    IN p_user_id BIGINT
+)
+BEGIN
+    DECLARE v_keep_topic BIGINT;
+    DECLARE v_merge_topic BIGINT;
+    DECLARE v_merge_name VARCHAR(255);
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    IF p_keep_id = p_merge_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot merge entity with itself';
+    END IF;
+
+    START TRANSACTION;
+
+    SELECT topic_id INTO v_keep_topic FROM entities WHERE id = p_keep_id FOR UPDATE;
+    SELECT topic_id, canonical_name INTO v_merge_topic, v_merge_name
+      FROM entities WHERE id = p_merge_id FOR UPDATE;
+
+    IF v_keep_topic IS NULL OR v_merge_topic IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'entity not found';
+    END IF;
+    IF v_keep_topic <> v_merge_topic THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'entities belong to different topics';
+    END IF;
+
+    -- migrate aliases (skip on UQ collision)
+    INSERT IGNORE INTO entity_aliases (entity_id, alias, source, confidence)
+    SELECT p_keep_id, alias, source, confidence FROM entity_aliases WHERE entity_id = p_merge_id;
+
+    -- record merged entity name as new alias
+    INSERT IGNORE INTO entity_aliases (entity_id, alias, source, confidence)
+    VALUES (p_keep_id, v_merge_name, 'auto', 0.99);
+
+    -- migrate chunk_entity_mapping (skip dupes; sum occurrences for collisions)
+    UPDATE IGNORE chunk_entity_mapping
+       SET entity_id = p_keep_id
+     WHERE entity_id = p_merge_id;
+    DELETE FROM chunk_entity_mapping WHERE entity_id = p_merge_id;
+
+    -- migrate relationships (drop self-loops & dupes silently)
+    UPDATE IGNORE relationships
+       SET source_entity_id = p_keep_id
+     WHERE source_entity_id = p_merge_id AND target_entity_id <> p_keep_id;
+    DELETE FROM relationships WHERE source_entity_id = p_merge_id;
+
+    UPDATE IGNORE relationships
+       SET target_entity_id = p_keep_id
+     WHERE target_entity_id = p_merge_id AND source_entity_id <> p_keep_id;
+    DELETE FROM relationships WHERE target_entity_id = p_merge_id;
+
+    -- delete merged entity
+    DELETE FROM entities WHERE id = p_merge_id;
+
+    -- mark blueprint as outdated
+    UPDATE topics SET blueprint_status = 'outdated' WHERE id = v_keep_topic;
+
+    -- audit
+    INSERT INTO audit_logs (user_id, action, entity_type, entity_id, before_value, after_value)
+    VALUES (p_user_id, 'merge', 'entity', p_keep_id,
+            JSON_OBJECT('merged_id', p_merge_id, 'merged_name', v_merge_name),
+            JSON_OBJECT('keep_id', p_keep_id));
+
+    COMMIT;
+END$$
+
+DELIMITER ;
