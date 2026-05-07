@@ -21,3 +21,22 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+-- 2) After chunk inserted: bump documents.chunks_count and progress status
+DROP TRIGGER IF EXISTS trg_chunks_after_insert$$
+CREATE TRIGGER trg_chunks_after_insert
+AFTER INSERT ON document_chunks
+FOR EACH ROW
+BEGIN
+    UPDATE documents
+    SET chunks_count = chunks_count + 1,
+        status = CASE
+            WHEN status = 'uploaded' THEN 'chunking'
+            ELSE status
+        END
+    WHERE id = NEW.document_id;
+END$$
+
+DELIMITER ;
