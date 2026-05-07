@@ -10,6 +10,16 @@ __pycache__/
 node_modules/
 dist/
 .vite/
+# Vue-tsc compilation artifacts (.vue.js / .ts.js next to sources)
+frontend/src/**/*.vue.js
+frontend/src/**/*.ts.js
+frontend/src/main.js
+frontend/src/api/client.js
+frontend/src/router/index.js
+frontend/src/stores/auth.js
+
+# Playwright MCP cache
+.playwright-mcp/
 
 # OS
 .DS_Store
