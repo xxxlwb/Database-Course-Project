@@ -66,3 +66,25 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+-- 4) After entity updated: if canonical_name changed, mark blueprint outdated + audit
+DROP TRIGGER IF EXISTS trg_entities_after_update$$
+CREATE TRIGGER trg_entities_after_update
+AFTER UPDATE ON entities
+FOR EACH ROW
+BEGIN
+    IF OLD.canonical_name <> NEW.canonical_name THEN
+        UPDATE topics
+           SET blueprint_status = 'outdated'
+         WHERE id = NEW.topic_id;
+
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_id, before_value, after_value)
+        VALUES (NULL, 'rename', 'entity', NEW.id,
+                JSON_OBJECT('canonical_name', OLD.canonical_name),
+                JSON_OBJECT('canonical_name', NEW.canonical_name));
+    END IF;
+END$$
+
+DELIMITER ;

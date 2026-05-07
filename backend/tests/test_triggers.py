@@ -71,3 +71,28 @@ def test_trigger_relationships_blocks_cross_topic(db_engine):
             assert False, "expected cross-topic to be rejected"
         except Exception as e:
             assert "cross-topic" in str(e) or "45000" in str(e)
+
+
+def test_trigger_entities_rename_marks_blueprint_outdated(db_engine):
+    with db_engine.connect() as c:
+        _seed_user_topic(c)
+        c.execute(text(
+            "INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+            "VALUES (1, 1, 'old', 'person')"
+        ))
+        c.execute(text(
+            "INSERT INTO analysis_blueprints (topic_id, status) VALUES (1, 'ready')"
+        ))
+        c.execute(text("UPDATE topics SET blueprint_status='ready' WHERE id=1"))
+        c.commit()
+
+        c.execute(text("UPDATE entities SET canonical_name='new' WHERE id=1"))
+        c.commit()
+
+        bs = c.execute(text("SELECT blueprint_status FROM topics WHERE id=1")).scalar()
+        assert bs == "outdated"
+
+        audit = c.execute(text(
+            "SELECT COUNT(*) FROM audit_logs WHERE action='rename' AND entity_id=1"
+        )).scalar()
+        assert audit == 1
