@@ -268,3 +268,46 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS sp_propagate_entity_rename$$
+CREATE PROCEDURE sp_propagate_entity_rename(
+    IN p_topic_id BIGINT,
+    IN p_pattern VARCHAR(255),
+    IN p_new_name VARCHAR(255)
+)
+BEGIN
+    DECLARE v_eid BIGINT;
+    DECLARE v_old_name VARCHAR(255);
+    DECLARE done INT DEFAULT 0;
+    DECLARE cur_e CURSOR FOR
+        SELECT id, canonical_name FROM entities
+         WHERE topic_id = p_topic_id
+           AND canonical_name LIKE p_pattern;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+    OPEN cur_e;
+    rename_loop: LOOP
+        FETCH cur_e INTO v_eid, v_old_name;
+        IF done = 1 THEN LEAVE rename_loop; END IF;
+
+        -- Save old name as alias before rename
+        INSERT IGNORE INTO entity_aliases (entity_id, alias, source, confidence)
+        VALUES (v_eid, v_old_name, 'auto', 1.00);
+
+        -- Rename (UPDATE may fail on UQ collision; in that case, skip via UPDATE IGNORE)
+        UPDATE IGNORE entities SET canonical_name = p_new_name WHERE id = v_eid;
+    END LOOP;
+    CLOSE cur_e;
+    COMMIT;
+END$$
+
+DELIMITER ;

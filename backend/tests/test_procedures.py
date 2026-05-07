@@ -122,3 +122,25 @@ def test_sp_archive_inactive_topics(db_engine):
     rows = dict(cur.fetchall())
     assert rows[1] == 1 and rows[2] == 0
     raw.close()
+
+
+def test_sp_propagate_entity_rename(db_engine):
+    raw = db_engine.raw_connection()
+    cur = raw.cursor()
+    cur.execute("INSERT INTO users (id, username, password_hash, email) VALUES (1,'u','x','u@u')")
+    cur.execute("INSERT INTO topics (id, name, owner_id) VALUES (1,'T',1)")
+    cur.execute("INSERT INTO entities (id, topic_id, canonical_name, entity_type) "
+                "VALUES (1,1,'foo-bar','concept'),(2,1,'foo-baz','concept'),(3,1,'qux','concept')")
+    raw.commit()
+
+    cur.execute("CALL sp_propagate_entity_rename(1, 'foo-%', 'normalized')")
+    raw.commit()
+
+    cur.execute("SELECT canonical_name FROM entities ORDER BY id")
+    names = [r[0] for r in cur.fetchall()]
+    # entity 1 renamed; entity 2 hits UQ collision (same new_name) so stays
+    assert 'normalized' in names
+
+    cur.execute("SELECT COUNT(*) FROM entity_aliases WHERE alias LIKE 'foo-%'")
+    assert cur.fetchone()[0] >= 1
+    raw.close()
