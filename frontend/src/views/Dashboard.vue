@@ -15,13 +15,15 @@
         :class="['stat-card', `t-${s.tone}`]"
         :style="{'animation-delay': i*60+'ms'}"
       >
-        <div class="card-bg"></div>
-        <div class="card-content">
-          <div class="stat-num">{{ s.value }}</div>
+        <div class="card-art" v-html="ART[s.tone]"></div>
+        <div class="card-foot">
+          <div class="foot-top">
+            <div class="stat-num">{{ s.value }}</div>
+            <span class="card-arrow">→</span>
+          </div>
           <div class="stat-name">{{ s.name }}</div>
           <div class="stat-meta">{{ s.meta }}</div>
         </div>
-        <span class="card-arrow">→</span>
       </router-link>
     </section>
 
@@ -58,11 +60,55 @@ const stats = ref({ topics: 0, docs: 0, entities: 0, rels: 0 })
 const jobs = ref<any[]>([])
 
 const items = computed(() => [
-  { value: stats.value.topics,   name: '主题空间', meta: 'Topics',        to: '/topics',        tone: 'red'    },
-  { value: stats.value.docs,     name: '文档',     meta: 'Documents',     to: '/documents',     tone: 'purple' },
-  { value: stats.value.entities, name: '实体',     meta: 'Entities',      to: '/entities',      tone: 'blue'   },
-  { value: stats.value.rels,     name: '关系',     meta: 'Relationships', to: '/relationships', tone: 'pink'   },
+  { value: stats.value.topics,   name: '主题空间', meta: 'TOPICS',        to: '/topics',        tone: 'red'    },
+  { value: stats.value.docs,     name: '文档',     meta: 'DOCUMENTS',     to: '/documents',     tone: 'purple' },
+  { value: stats.value.entities, name: '实体',     meta: 'ENTITIES',      to: '/entities',      tone: 'blue'   },
+  { value: stats.value.rels,     name: '关系',     meta: 'RELATIONSHIPS', to: '/relationships', tone: 'pink'   },
 ])
+
+// SVG illustrations: pastel-on-pastel, MiniMax product-card vibe
+// Each viewBox 200×120, shapes echo the category (clusters / stacks / nodes / arrows)
+const ART: Record<string, string> = {
+  // 主题空间 → 散落聚类（topic clusters）
+  red: `
+    <svg viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+      <circle cx="42"  cy="62" r="38" fill="#F4B4AB" opacity="0.95"/>
+      <circle cx="98"  cy="38" r="28" fill="#E58075" opacity="0.85"/>
+      <circle cx="155" cy="78" r="34" fill="#DC4D44" opacity="0.92"/>
+      <circle cx="78"  cy="98" r="20" fill="#FBE0DA" opacity="0.95"/>
+      <circle cx="135" cy="22" r="11" fill="#FCEAE6" opacity="0.85"/>
+      <circle cx="180" cy="42" r="7"  fill="#F4B4AB" opacity="0.7"/>
+    </svg>`,
+  // 文档 → 文档堆栈条形（document stacks）
+  purple: `
+    <svg viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+      <rect x="22"  y="20" width="26" height="92" rx="5" fill="#D9D2F8"/>
+      <rect x="60"  y="36" width="26" height="76" rx="5" fill="#B4A8F0"/>
+      <rect x="98"  y="48" width="26" height="64" rx="5" fill="#8C7DEF"/>
+      <rect x="136" y="28" width="26" height="84" rx="5" fill="#C9C2F5"/>
+      <rect x="174" y="56" width="20" height="56" rx="5" fill="#E8E5FF"/>
+    </svg>`,
+  // 实体 → 节点连线（entity graph nodes）
+  blue: `
+    <svg viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+      <line x1="48"  y1="38"  x2="118" y2="62"  stroke="#7FB1DA" stroke-width="2" opacity="0.55"/>
+      <line x1="118" y1="62"  x2="158" y2="100" stroke="#7FB1DA" stroke-width="2" opacity="0.55"/>
+      <line x1="48"  y1="38"  x2="158" y2="100" stroke="#7FB1DA" stroke-width="2" opacity="0.35"/>
+      <line x1="118" y1="62"  x2="180" y2="28"  stroke="#7FB1DA" stroke-width="2" opacity="0.45"/>
+      <circle cx="48"  cy="38"  r="20" fill="#A6C8E5"/>
+      <circle cx="118" cy="62"  r="28" fill="#4A6FA5"/>
+      <circle cx="158" cy="100" r="18" fill="#7FB1DA"/>
+      <circle cx="180" cy="28"  r="11" fill="#DCE9F4"/>
+    </svg>`,
+  // 关系 → 箭头雪佛龙（relationship chevrons）
+  pink: `
+    <svg viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+      <path d="M 18 30 L 58 60 L 18 90 Z" fill="#F8C5D9" opacity="0.95"/>
+      <path d="M 68 30 L 108 60 L 68 90 Z" fill="#EE5BAB" opacity="0.95"/>
+      <path d="M 118 30 L 158 60 L 118 90 Z" fill="#C8367F" opacity="0.95"/>
+      <circle cx="178" cy="60" r="6" fill="#F8C5D9"/>
+    </svg>`,
+}
 
 onMounted(async () => {
   const [t, d, e, r, j] = await Promise.all([
@@ -87,80 +133,80 @@ onMounted(async () => {
   margin-bottom: var(--s-7);
 }
 
-/* Card base — vibrant colored block, MiniMax product-card vibe */
+/* Card base — two-zone (pastel art on top, white text below), MiniMax product-card vibe */
 .stat-card {
-  position: relative;
-  display: block;
-  padding: var(--s-5);
+  display: flex; flex-direction: column;
   border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--canvas);
   overflow: hidden;
   text-decoration: none;
-  color: white;
-  min-height: 168px;
-  transition: transform var(--t), box-shadow var(--t), filter var(--t);
+  color: var(--ink);
+  transition: transform var(--t), box-shadow var(--t), border-color var(--t);
   cursor: pointer;
-  isolation: isolate;
 }
 .stat-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 32px rgba(24, 30, 37, 0.16);
-  filter: brightness(1.05);
+  box-shadow: 0 12px 28px rgba(24, 30, 37, 0.10);
+  border-color: var(--border-strong);
 }
 .stat-card:active { transform: translateY(-1px); }
 
-/* Decorative layer with soft circles + gradient sheen for depth */
-.card-bg {
-  position: absolute; inset: 0;
-  z-index: 0;
-  background-image:
-    radial-gradient(circle at 88% 14%, rgba(255,255,255,0.20) 0, rgba(255,255,255,0.20) 28px, transparent 29px),
-    radial-gradient(circle at 96% 38%, rgba(255,255,255,0.10) 0, rgba(255,255,255,0.10) 14px, transparent 15px),
-    radial-gradient(circle at 78% 88%, rgba(0,0,0,0.10) 0, rgba(0,0,0,0.10) 22px, transparent 23px),
-    linear-gradient(135deg, rgba(255,255,255,0.18), transparent 60%);
+/* Top: pastel art zone hosting the inline SVG */
+.card-art {
+  height: 130px;
+  display: flex; align-items: stretch; justify-content: stretch;
 }
+.card-art :deep(svg) { width: 100%; height: 100%; display: block; }
 
-.card-content { position: relative; z-index: 1; }
-.card-arrow {
-  position: absolute; right: var(--s-5); bottom: var(--s-4);
-  z-index: 1;
-  width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.22);
-  color: white; font-size: 14px; line-height: 1;
-  transition: background var(--t), transform var(--t);
+/* Bottom: clean white footer with stat + name + arrow */
+.card-foot {
+  padding: var(--s-4) var(--s-4) var(--s-4);
+  border-top: 1px solid var(--border-faint);
 }
-.stat-card:hover .card-arrow {
-  background: rgba(255,255,255,0.36);
-  transform: translateX(2px);
+.foot-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 4px;
 }
-
 .stat-num {
-  font-size: 40px; font-weight: 700;
-  color: white;
+  font-size: 32px; font-weight: 700;
+  color: var(--ink);
   letter-spacing: -0.025em;
-  line-height: 1.05;
+  line-height: 1;
   font-feature-settings: 'tnum';
 }
-.stat-name {
-  margin-top: var(--s-3);
-  font-size: 14px; font-weight: 600;
-  color: white;
+.card-arrow {
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  transition: background var(--t), color var(--t), transform var(--t), border-color var(--t);
 }
+.stat-card:hover .card-arrow {
+  transform: translateX(2px);
+}
+.t-red:hover    .card-arrow { background: var(--red);    color: white; border-color: var(--red); }
+.t-purple:hover .card-arrow { background: var(--purple); color: white; border-color: var(--purple); }
+.t-blue:hover   .card-arrow { background: var(--blue);   color: white; border-color: var(--blue); }
+.t-pink:hover   .card-arrow { background: var(--pink);   color: white; border-color: var(--pink); }
+
+.stat-name { margin-top: 6px; font-size: 14px; font-weight: 600; color: var(--ink); }
 .stat-meta {
   margin-top: 3px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: rgba(255,255,255,0.72);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 10.5px;
+  color: var(--ink-4);
+  letter-spacing: 0.08em;
 }
 
-/* Tone variants — solid + slight gradient for depth */
-.t-red    { background: linear-gradient(135deg, #DC4D44 0%, #C13E36 100%); }
-.t-purple { background: linear-gradient(135deg, #8C7DEF 0%, #6E5FE0 100%); }
-.t-blue   { background: linear-gradient(135deg, #4A6FA5 0%, #355881 100%); }
-.t-pink   { background: linear-gradient(135deg, #E54998 0%, #C8367F 100%); }
+/* Pastel tinted backgrounds for the art zone — three-shade gradients matching MiniMax cards */
+.t-red    .card-art { background: linear-gradient(135deg, #FCEDE9 0%, #F8DAD3 100%); }
+.t-purple .card-art { background: linear-gradient(135deg, #F1EEFC 0%, #E2DCF8 100%); }
+.t-blue   .card-art { background: linear-gradient(135deg, #E8F0F8 0%, #CFDFF0 100%); }
+.t-pink   .card-art { background: linear-gradient(135deg, #FAE3EC 0%, #F5C9DC 100%); }
 
 /* Recent jobs section */
 .section-head {
