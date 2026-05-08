@@ -1,6 +1,10 @@
 .PHONY: help db-init db-drop db-reset backend frontend test perf-load demo-load \
         ensure-uv ensure-node ensure-mysql-client install-backend install-frontend doctor
 
+# Make sure newly-installed user-local tools (uv, npm globals) are findable
+# in every recipe's child shell, not just the login shell.
+export PATH := $(HOME)/.local/bin:$(PATH)
+
 # ============================================================
 # Cross-platform helpers
 #   - Linux/Ubuntu: auto-install missing deps via apt + official scripts
