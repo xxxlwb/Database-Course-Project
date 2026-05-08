@@ -1,12 +1,14 @@
 <template>
   <div v-if="doc">
     <header class="page-head">
-      <h1>{{ doc.title }}
-        <span :class="['status-pill', `s-${doc.status}`]" style="margin-left:8px;vertical-align:middle">
-          {{ doc.status }}
-        </span>
-      </h1>
-      <p class="lead">文档详情:查看原文、切块结果与 LLM 生成的认知地图。</p>
+      <div class="page-head-text">
+        <h1>{{ doc.title }}
+          <span :class="['status-pill', `s-${doc.status}`]" style="margin-left:8px;vertical-align:middle">
+            {{ doc.status }}
+          </span>
+        </h1>
+        <p class="lead">文档详情:查看原文、切块结果与 LLM 生成的认知地图。</p>
+      </div>
     </header>
     <el-tabs>
       <el-tab-pane label="原文">

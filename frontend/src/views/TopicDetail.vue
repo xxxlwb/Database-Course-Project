@@ -1,12 +1,14 @@
 <template>
   <div v-if="topic">
     <header class="page-head">
-      <h1>{{ topic.name }}
-        <span :class="['status-pill', topic.blueprint_status==='ready'?'s-completed':'s-pending']" style="margin-left:8px;vertical-align:middle">
-          {{ topic.blueprint_status }}
-        </span>
-      </h1>
-      <p class="lead">{{ topic.description || '主题详情:管理本主题的文档、实体、关系与蓝图。' }}</p>
+      <div class="page-head-text">
+        <h1>{{ topic.name }}
+          <span :class="['status-pill', topic.blueprint_status==='ready'?'s-completed':'s-pending']" style="margin-left:8px;vertical-align:middle">
+            {{ topic.blueprint_status }}
+          </span>
+        </h1>
+        <p class="lead">{{ topic.description || '主题详情:管理本主题的文档、实体、关系与蓝图。' }}</p>
+      </div>
     </header>
 
     <el-tabs v-model="tab">

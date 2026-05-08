@@ -1,11 +1,11 @@
 <template>
   <div>
-    <header class="page-head with-action">
-      <div class="head-text">
+    <header class="page-head">
+      <div class="page-head-text">
         <h1>文档库</h1>
         <p class="lead">上传、切块、生成认知地图与抽取实体的源头。</p>
       </div>
-      <div class="head-action">
+      <div class="page-head-actions">
         <el-button type="primary" @click="dlg=true">+ 上传文档</el-button>
       </div>
     </header>

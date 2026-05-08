@@ -1,8 +1,10 @@
 <template>
   <div>
     <header class="page-head">
-      <h1>知识图谱 · {{ topicName }}</h1>
-      <p class="lead">主题内的实体节点与语义关系网络。可拖拽、缩放与平移。</p>
+      <div class="page-head-text">
+        <h1>知识图谱 · {{ topicName }}</h1>
+        <p class="lead">主题内的实体节点与语义关系网络。可拖拽、缩放与平移。</p>
+      </div>
     </header>
     <div class="chart-card">
       <v-chart ref="chartRef" :option="option" autoresize style="height:600px" />
@@ -29,40 +31,40 @@ const edges = ref<any[]>([])
 const topicName = ref('')
 const chartRef = ref()
 
-// Warm editorial palette aligned with theme
+// MiniMax-aligned palette: red brand + accent purples/golds + state colors
 const TYPE_COLORS: Record<string,string> = {
-  person:    '#CC785C', // rust
-  project:   '#4A7C4E', // success green
-  task:      '#B8862E', // warning amber
-  concept:   '#A04545', // danger maroon
-  decision:  '#5A6B7A', // info slate
-  event:     '#6B5B95', // muted purple
-  place:     '#8C6E54', // earth brown
-  other:     '#A39E94', // ink-faint
+  person:    '#D01316', // brand red
+  project:   '#00B42A', // success
+  task:      '#FF7D00', // warning
+  concept:   '#6B6BFA', // purple
+  decision:  '#165DFF', // info blue
+  event:     '#E8A93D', // gold
+  place:     '#4E5969', // ink-3
+  other:     '#86909C', // ink-4
 }
 
 const option = computed(() => ({
   tooltip: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E5DFD3',
-    textStyle: { color: '#1A1A1A', fontFamily: 'Geist, sans-serif' },
+    borderColor: '#E5E6EB',
+    textStyle: { color: '#181E25', fontFamily: 'Manrope, sans-serif' },
   },
   legend: [{
     data: Object.keys(TYPE_COLORS),
-    textStyle: { color: '#6B6660', fontFamily: 'Geist, sans-serif' },
+    textStyle: { color: '#4E5969', fontFamily: 'Manrope, sans-serif' },
   }],
   series: [{
     type: 'graph', layout: 'force', roam: true, draggable: true,
-    label: { show: true, position: 'right', fontFamily: 'Geist, sans-serif', color: '#1A1A1A' },
+    label: { show: true, position: 'right', fontFamily: 'Manrope, sans-serif', color: '#181E25' },
     force: { repulsion: 200, edgeLength: 80 },
     edgeSymbol: ['none', 'arrow'],
-    edgeLabel: { show: true, formatter: (p: any) => p.data.label, fontSize: 10, fontFamily: 'Geist Mono, monospace', color: '#6B6660' },
-    lineStyle: { color: '#C9C0AE', opacity: 0.6 },
+    edgeLabel: { show: true, formatter: (p: any) => p.data.label, fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: '#4E5969' },
+    lineStyle: { color: '#C9CDD2', opacity: 0.6 },
     categories: Object.keys(TYPE_COLORS).map(name => ({ name, itemStyle: { color: TYPE_COLORS[name] } })),
     data: nodes.value.map(n => ({
       id: n.id, name: n.name, value: n.value,
       symbolSize: 10 + Math.min(30, n.value),
-      category: n.type, itemStyle: { color: TYPE_COLORS[n.type] || '#A39E94' },
+      category: n.type, itemStyle: { color: TYPE_COLORS[n.type] || '#86909C' },
     })),
     links: edges.value.map(e => ({
       source: e.source, target: e.target, label: e.label, value: e.weight,
@@ -80,8 +82,8 @@ onMounted(async () => {
 <style scoped>
 .chart-card {
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-elev);
-  padding: var(--space-3);
+  border-radius: var(--r-lg);
+  background: var(--canvas);
+  padding: var(--s-3);
 }
 </style>

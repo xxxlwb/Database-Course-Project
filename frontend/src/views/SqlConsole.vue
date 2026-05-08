@@ -1,11 +1,11 @@
 <template>
   <div class="sql-console">
-    <header class="page-head with-action">
-      <div class="head-text">
+    <header class="page-head">
+      <div class="page-head-text">
         <h1>SQL 控制台</h1>
         <p class="lead">面向管理员的通用执行台。所有语句都会写入审计日志。</p>
       </div>
-      <div class="head-action toolbar">
+      <div class="page-head-actions toolbar">
         <el-button @click="run('SHOW TABLES')">SHOW TABLES</el-button>
         <el-button @click="run('SHOW PROCEDURE STATUS WHERE Db = DATABASE()')">SHOW PROCEDURES</el-button>
         <el-button @click="run('SHOW TRIGGERS')">SHOW TRIGGERS</el-button>
@@ -46,11 +46,11 @@ const tableRows = computed(() => {
 })
 </script>
 <style scoped>
-.sql-console { display: flex; flex-direction: column; gap: var(--space-4); }
-.toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.sql-console { display: flex; flex-direction: column; gap: var(--s-4); }
+.toolbar { display: flex; gap: var(--s-2); flex-wrap: wrap; }
 .editor-wrap {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--r);
   overflow: hidden;
 }
 .result { display: flex; flex-direction: column; }

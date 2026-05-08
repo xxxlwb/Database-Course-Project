@@ -1,11 +1,11 @@
 <template>
   <div>
-    <header class="page-head with-action">
-      <div class="head-text">
+    <header class="page-head">
+      <div class="page-head-text">
         <h1>实体</h1>
         <p class="lead">图谱中的核心节点。支持别名管理与跨实体合并。</p>
       </div>
-      <div class="head-action toolbar">
+      <div class="page-head-actions toolbar">
         <el-input v-model="q" placeholder="搜索实体名" style="width:220px" @input="load" />
         <el-button type="primary" @click="mergeDlg=true">⚙ 合并实体</el-button>
       </div>
@@ -66,6 +66,6 @@ async function del(row: any) { await ElMessageBox.confirm('确认删除？'); aw
 onMounted(load)
 </script>
 <style scoped>
-.toolbar { display: flex; gap: var(--space-3); align-items: center; }
-.alias-add { display: flex; gap: var(--space-3); margin-top: var(--space-4); }
+.toolbar { display: flex; gap: var(--s-3); align-items: center; }
+.alias-add { display: flex; gap: var(--s-3); margin-top: var(--s-4); }
 </style>

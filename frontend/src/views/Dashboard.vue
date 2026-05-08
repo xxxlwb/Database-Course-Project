@@ -1,14 +1,14 @@
 <template>
-  <div class="dashboard">
+  <div class="dashboard fade-in">
     <header class="page-head">
-      <h1>系统概览</h1>
-      <p class="lead">
-        在此查看主题、文档、实体和关系的全局指标,以及最近的抽取任务进度。
-      </p>
+      <div class="page-head-text">
+        <h1>系统概览</h1>
+        <p class="lead">主题、文档、实体、关系的全局指标,以及最近抽取任务进度。</p>
+      </div>
     </header>
 
     <section class="stat-grid">
-      <div class="stat-card" v-for="(s, i) in items" :key="i" :style="{'--delay': i*60+'ms'}">
+      <div class="stat-card" v-for="(s, i) in items" :key="i" :style="{'animation-delay': i*60+'ms'}">
         <div class="stat-num">{{ s.value }}</div>
         <div class="stat-name">{{ s.name }}</div>
         <div class="stat-meta">{{ s.meta }}</div>
@@ -24,9 +24,7 @@
         <el-table :data="jobs" size="default">
           <el-table-column prop="id" label="ID" width="60" />
           <el-table-column prop="job_type" label="类型" width="140">
-            <template #default="{row}">
-              <span class="job-type">{{ row.job_type }}</span>
-            </template>
+            <template #default="{row}"><span class="job-type">{{ row.job_type }}</span></template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="120">
             <template #default="{row}">
@@ -71,57 +69,48 @@ onMounted(async () => {
 
 <style scoped>
 .dashboard { max-width: 1200px; }
+.lead { color: var(--ink-3); font-size: 14px; max-width: 640px; margin: 6px 0 0; line-height: 1.6; }
 
 .stat-grid {
   display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-4);
-  margin-bottom: var(--space-7);
-}
-.stat-card {
-  padding: var(--space-5) var(--space-5) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-elev);
-  transition: border-color var(--t), transform var(--t), box-shadow var(--t);
-  animation: fade-up 0.5s var(--delay, 0ms) ease both;
-}
-.stat-card:hover {
-  border-color: var(--border-strong);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow);
+  gap: var(--s-4);
+  margin-bottom: var(--s-7);
 }
 .stat-num {
-  font-family: var(--font-display);
-  font-size: 44px;
-  font-weight: 350;
+  font-size: 36px; font-weight: 700;
   color: var(--ink);
-  line-height: 1;
   letter-spacing: -0.025em;
+  line-height: 1.05;
+  font-feature-settings: 'tnum';
 }
-.stat-name {
-  margin-top: var(--space-3);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--ink);
-}
+.stat-name { margin-top: var(--s-3); font-size: 13.5px; font-weight: 600; color: var(--ink); }
 .stat-meta {
-  margin-top: 2px;
+  margin-top: 3px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-  letter-spacing: 0.04em;
+  font-size: 10.5px;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
+
+.section-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: var(--s-4);
+}
+.section-head h2 { margin: 0; }
+.view-all {
+  font-size: 13px; color: var(--red); text-decoration: none;
+  font-weight: 600; transition: color var(--t);
+}
+.view-all:hover { color: var(--red-hover); }
 
 .job-card {
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-elev);
+  border-radius: var(--r-lg);
+  background: var(--canvas);
   overflow: hidden;
+  transition: border-color var(--t);
 }
-.job-type { font-family: var(--font-mono); font-size: 12px; color: var(--ink-secondary); }
-
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+.job-card:hover { border-color: var(--border-strong); }
+.job-type { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
 </style>

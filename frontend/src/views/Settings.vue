@@ -1,8 +1,10 @@
 <template>
   <div>
     <header class="page-head">
-      <h1>系统维护</h1>
-      <p class="lead">调用游标存储过程进行批量维护操作。</p>
+      <div class="page-head-text">
+        <h1>系统维护</h1>
+        <p class="lead">调用游标存储过程进行批量维护操作。</p>
+      </div>
     </header>
     <el-card style="margin-bottom:16px">
       <template #header>实体提及次数重算（调 sp_recompute_entity_mentions）</template>
@@ -39,7 +41,7 @@ async function archive() { busy2.value = true; try { const r = await client.post
 async function rename() { busy3.value = true; try { await client.post(`/admin/propagate-rename?topic_id=${renameForm.topic_id}&pattern=${encodeURIComponent(renameForm.pattern)}&new_name=${encodeURIComponent(renameForm.new_name)}`); ElMessage.success('已完成') } finally { busy3.value = false } }
 </script>
 <style scoped>
-.row { display: flex; align-items: center; gap: var(--space-3); }
-.suffix { color: var(--ink-muted); font-size: 14px; }
-.rename-form { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+.row { display: flex; align-items: center; gap: var(--s-3); }
+.suffix { color: var(--ink-3); font-size: 14px; }
+.rename-form { display: flex; gap: var(--s-3); flex-wrap: wrap; align-items: center; }
 </style>

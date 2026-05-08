@@ -1,11 +1,11 @@
 <template>
   <div>
-    <header class="page-head with-action">
-      <div class="head-text">
+    <header class="page-head">
+      <div class="page-head-text">
         <h1>抽取任务</h1>
         <p class="lead">异步任务队列:认知地图、蓝图、图谱抽取的状态轨迹。</p>
       </div>
-      <div class="head-action">
+      <div class="page-head-actions">
         <el-button @click="load">刷新</el-button>
       </div>
     </header>
@@ -39,5 +39,5 @@ async function load() { rows.value = (await client.get('/jobs')).data }
 onMounted(load)
 </script>
 <style scoped>
-.job-type { font-family: var(--font-mono); font-size: 12px; color: var(--ink-secondary); }
+.job-type { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
 </style>

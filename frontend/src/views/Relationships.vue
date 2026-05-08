@@ -1,11 +1,11 @@
 <template>
   <div>
-    <header class="page-head with-action">
-      <div class="head-text">
+    <header class="page-head">
+      <div class="page-head-text">
         <h1>关系</h1>
         <p class="lead">实体之间的语义边。受触发器约束限制为同一主题内。</p>
       </div>
-      <div class="head-action">
+      <div class="page-head-actions">
         <el-button type="primary" @click="dlg=true">+ 新建关系</el-button>
       </div>
     </header>

@@ -2,71 +2,62 @@
   <el-container class="app">
     <el-aside width="240px" class="aside">
       <div class="brand">
-        <div class="brand-mark">N</div>
+        <div class="brand-mark">
+          <span class="mark-glyph">M</span>
+        </div>
         <div class="brand-text">
           <div class="brand-name">NKG</div>
-          <div class="brand-sub">Narrative Knowledge Graph</div>
+          <div class="brand-sub">Knowledge Graph</div>
         </div>
       </div>
-      <div class="nav-section">
-        <div class="nav-label">主导航</div>
-        <el-menu :default-active="route.path" router>
-          <el-menu-item index="/">
-            <span class="nav-icon">◇</span>
-            <span>概览</span>
-          </el-menu-item>
-          <el-menu-item index="/topics">
-            <span class="nav-icon">◈</span>
-            <span>主题空间</span>
-          </el-menu-item>
-          <el-menu-item index="/documents">
-            <span class="nav-icon">▤</span>
-            <span>文档库</span>
-          </el-menu-item>
-        </el-menu>
+
+      <div class="aside-menu">
+        <div class="nav-section">
+          <div class="nav-label">主导航</div>
+          <el-menu :default-active="route.path" router>
+            <el-menu-item index="/"><span class="nav-glyph">⌂</span><span>概览</span></el-menu-item>
+            <el-menu-item index="/topics"><span class="nav-glyph">▦</span><span>主题空间</span></el-menu-item>
+            <el-menu-item index="/documents"><span class="nav-glyph">▤</span><span>文档库</span></el-menu-item>
+          </el-menu>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">知识图谱</div>
+          <el-menu :default-active="route.path" router>
+            <el-menu-item index="/entities"><span class="nav-glyph">●</span><span>实体</span></el-menu-item>
+            <el-menu-item index="/relationships"><span class="nav-glyph">⇌</span><span>关系</span></el-menu-item>
+          </el-menu>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">运维</div>
+          <el-menu :default-active="route.path" router>
+            <el-menu-item index="/jobs"><span class="nav-glyph">⚙</span><span>抽取任务</span></el-menu-item>
+            <el-menu-item index="/audit"><span class="nav-glyph">⌕</span><span>审计日志</span></el-menu-item>
+            <el-menu-item v-if="auth.user?.role==='admin'" index="/dev/sql"><span class="nav-glyph">{ }</span><span>SQL 控制台</span></el-menu-item>
+            <el-menu-item v-if="auth.user?.role==='admin'" index="/settings"><span class="nav-glyph">✦</span><span>系统设置</span></el-menu-item>
+          </el-menu>
+        </div>
       </div>
-      <div class="nav-section">
-        <div class="nav-label">知识图谱</div>
-        <el-menu :default-active="route.path" router>
-          <el-menu-item index="/entities">
-            <span class="nav-icon">●</span>
-            <span>实体</span>
-          </el-menu-item>
-          <el-menu-item index="/relationships">
-            <span class="nav-icon">⇌</span>
-            <span>关系</span>
-          </el-menu-item>
-        </el-menu>
-      </div>
-      <div class="nav-section">
-        <div class="nav-label">运维</div>
-        <el-menu :default-active="route.path" router>
-          <el-menu-item index="/jobs">
-            <span class="nav-icon">⚙</span>
-            <span>抽取任务</span>
-          </el-menu-item>
-          <el-menu-item index="/audit">
-            <span class="nav-icon">⌕</span>
-            <span>审计日志</span>
-          </el-menu-item>
-          <el-menu-item v-if="auth.user?.role==='admin'" index="/dev/sql">
-            <span class="nav-icon">{ }</span>
-            <span>SQL 控制台</span>
-          </el-menu-item>
-          <el-menu-item v-if="auth.user?.role==='admin'" index="/settings">
-            <span class="nav-icon">✦</span>
-            <span>系统设置</span>
-          </el-menu-item>
-        </el-menu>
+
+      <div class="aside-footer">
+        <div class="footer-line">v0.1 · NKG</div>
+        <div class="footer-line subtle">Powered by MiniMax</div>
       </div>
     </el-aside>
+
     <el-container>
       <el-header class="header">
         <div class="breadcrumb">{{ pageTitle }}</div>
-        <div class="user-chip">
-          <span class="user-name">{{ auth.user?.username }}</span>
-          <span class="user-role">{{ auth.user?.role }}</span>
-          <el-button text @click="logout" class="logout-btn">退出</el-button>
+        <div class="header-right">
+          <div class="user-chip">
+            <div class="user-avatar">{{ initial }}</div>
+            <div class="user-meta">
+              <span class="user-name">{{ auth.user?.username }}</span>
+              <span class="user-role">{{ auth.user?.role }}</span>
+            </div>
+          </div>
+          <button class="logout" @click="logout">退出</button>
         </div>
       </el-header>
       <el-main class="main"><router-view /></el-main>
@@ -83,125 +74,166 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
+const initial = computed(() => (auth.user?.username || '?').charAt(0).toUpperCase())
+
 const pageTitle = computed(() => {
-  const map: Record<string, string> = {
-    '/': '概览',
-    '/topics': '主题空间',
-    '/documents': '文档库',
-    '/entities': '实体',
-    '/relationships': '关系',
-    '/jobs': '抽取任务',
-    '/audit': '审计日志',
-    '/dev/sql': 'SQL 控制台',
-    '/settings': '系统设置',
-  }
-  if (map[route.path]) return map[route.path]
-  if (route.path.startsWith('/topics/') && route.path.endsWith('/graph')) return '知识图谱'
-  if (route.path.startsWith('/topics/')) return '主题详情'
-  if (route.path.startsWith('/documents/')) return '文档详情'
-  return route.path
+  const p = route.path
+  if (p === '/') return '概览'
+  if (p === '/topics') return '主题空间'
+  if (p === '/documents') return '文档库'
+  if (p === '/entities') return '实体'
+  if (p === '/relationships') return '关系'
+  if (p === '/jobs') return '抽取任务'
+  if (p === '/audit') return '审计日志'
+  if (p === '/dev/sql') return 'SQL 控制台'
+  if (p === '/settings') return '系统设置'
+  if (/^\/topics\/\d+\/graph$/.test(p)) return '知识图谱'
+  if (/^\/topics\/\d+$/.test(p)) return '主题详情'
+  if (/^\/documents\/\d+$/.test(p)) return '文档详情'
+  return p
 })
 
-function logout() {
-  auth.logout()
-  router.push('/login')
-}
+function logout() { auth.logout(); router.push('/login') }
 </script>
 
 <style scoped>
-.app { height: 100vh; background: var(--cream); }
+.app { height: 100vh; background: var(--canvas); }
+
 .aside {
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  padding: var(--space-5) 0 var(--space-4);
+  background: var(--chrome);
+  border-right: 1px solid var(--chrome-border);
+  display: flex; flex-direction: column;
+  padding: var(--s-5) 0;
   overflow-y: auto;
 }
+
 .brand {
-  display: flex; align-items: center; gap: var(--space-3);
-  padding: 0 var(--space-5) var(--space-6);
-  border-bottom: 1px solid var(--border-faint);
-  margin-bottom: var(--space-5);
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: 0 var(--s-5) var(--s-6);
+  border-bottom: 1px solid var(--chrome-border);
+  margin-bottom: var(--s-4);
 }
 .brand-mark {
-  width: 36px; height: 36px;
-  background: var(--rust);
-  color: white;
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: 18px;
+  width: 38px; height: 38px;
+  background: var(--red);
   display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-md);
+  position: relative;
+}
+.brand-mark::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, rgba(255,255,255,0.16), transparent 60%);
+  pointer-events: none;
+}
+.mark-glyph {
+  color: white; font-weight: 700; font-size: 18px;
+  letter-spacing: -0.02em;
 }
 .brand-name {
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 500;
-  color: var(--ink);
-  line-height: 1.1;
+  color: var(--ink-on-dark);
+  font-size: 17px; font-weight: 700;
+  line-height: 1.1; letter-spacing: -0.01em;
 }
 .brand-sub {
+  color: var(--ink-on-dark-3);
   font-size: 11px;
-  color: var(--ink-muted);
-  letter-spacing: 0.04em;
-  margin-top: 2px;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
 }
-.nav-section { margin-bottom: var(--space-5); }
+
+.aside-menu { flex: 1; }
+.nav-section { margin-bottom: var(--s-4); }
 .nav-label {
-  padding: 0 var(--space-5) var(--space-2);
+  padding: 0 var(--s-5) var(--s-2);
   font-size: 10.5px;
-  letter-spacing: 0.12em;
-  color: var(--ink-faint);
+  letter-spacing: 0.14em;
+  color: var(--ink-on-dark-3);
   text-transform: uppercase;
   font-weight: 600;
 }
-.nav-icon {
+.nav-glyph {
   display: inline-block;
   width: 18px;
-  margin-right: var(--space-3);
-  color: var(--ink-faint);
+  margin-right: var(--s-3);
+  color: var(--ink-on-dark-3);
   font-family: var(--font-mono);
   font-size: 12px;
   text-align: center;
   transition: color var(--t);
 }
-:deep(.el-menu-item:hover .nav-icon),
-:deep(.el-menu-item.is-active .nav-icon) { color: var(--rust); }
+.aside-menu :deep(.el-menu-item):hover .nav-glyph,
+.aside-menu :deep(.el-menu-item.is-active) .nav-glyph { color: var(--red); }
+
+.aside-footer {
+  padding: var(--s-4) var(--s-5) 0;
+  border-top: 1px solid var(--chrome-border);
+  margin-top: var(--s-4);
+}
+.footer-line { color: var(--ink-on-dark-3); font-size: 11px; font-family: var(--font-mono); }
+.footer-line.subtle { opacity: 0.6; margin-top: 2px; }
 
 .header {
-  background: var(--cream);
+  background: var(--canvas);
   border-bottom: 1px solid var(--border);
   display: flex; justify-content: space-between; align-items: center;
-  padding: 0 var(--space-6);
-  height: 64px;
+  padding: 0 var(--s-6);
+  height: 60px;
+  flex-shrink: 0;
 }
-.breadcrumb {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 500;
-  color: var(--ink);
-}
+.breadcrumb { font-size: 16px; font-weight: 600; color: var(--ink); }
+.header-right { display: flex; align-items: center; gap: var(--s-3); }
+
 .user-chip {
-  display: flex; align-items: center; gap: var(--space-3);
-  padding: 6px var(--space-3) 6px var(--space-4);
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 4px var(--s-3) 4px 4px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--surface-elev);
+  background: var(--surface);
+  transition: border-color var(--t), background var(--t);
 }
-.user-name { font-weight: 500; color: var(--ink); font-size: 13px; }
+.user-chip:hover { border-color: var(--border-strong); background: var(--canvas); }
+.user-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--chrome);
+  color: white; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  letter-spacing: -0.01em;
+}
+.user-meta { display: flex; align-items: center; gap: var(--s-2); }
+.user-name { font-weight: 500; font-size: 13px; color: var(--ink); }
 .user-role {
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  padding: 2px 8px;
-  background: var(--surface-sunken);
-  border-radius: var(--radius-sm);
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--red);
+  padding: 2px 6px;
+  background: var(--red-soft);
+  border-radius: var(--r-sm);
 }
-.logout-btn { font-size: 13px; color: var(--ink-muted); padding: 4px 8px; }
-.logout-btn:hover { color: var(--rust); }
+
+.logout {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--ink-2);
+  font-family: var(--font);
+  font-size: 13px; font-weight: 500;
+  padding: 6px 14px;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: all var(--t);
+}
+.logout:hover {
+  background: var(--red);
+  border-color: var(--red);
+  color: white;
+}
 
 .main {
-  padding: var(--space-6) var(--space-7);
-  background: var(--cream);
+  padding: var(--s-6) var(--s-7);
+  background: var(--canvas);
+  overflow-y: auto;
 }
 </style>

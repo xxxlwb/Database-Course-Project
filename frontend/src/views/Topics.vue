@@ -1,11 +1,11 @@
 <template>
   <div>
-    <header class="page-head with-action">
-      <div class="head-text">
+    <header class="page-head">
+      <div class="page-head-text">
         <h1>主题空间</h1>
         <p class="lead">在此管理你的主题空间,每个主题汇集相关文档与图谱。</p>
       </div>
-      <div class="head-action">
+      <div class="page-head-actions">
         <el-button type="primary" @click="openCreate">+ 新建主题</el-button>
       </div>
     </header>

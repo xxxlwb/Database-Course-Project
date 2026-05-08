@@ -1,8 +1,10 @@
 <template>
   <div>
     <header class="page-head">
-      <h1>审计日志</h1>
-      <p class="lead">由触发器和存储过程自动写入的全量操作记录。</p>
+      <div class="page-head-text">
+        <h1>审计日志</h1>
+        <p class="lead">由触发器和存储过程自动写入的全量操作记录。</p>
+      </div>
     </header>
     <el-table :data="rows" border>
       <el-table-column prop="id" label="ID" width="80" />
