@@ -157,18 +157,23 @@ function logout() { auth.logout(); router.push('/login') }
 }
 .brand-mark {
   width: 38px; height: 38px;
-  background: var(--red);
+  background:
+    radial-gradient(circle at 25% 22%, rgba(255,200,180,0.55), transparent 55%),
+    linear-gradient(135deg, #F26354 0%, #DC4D44 48%, #B8362E 100%);
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-md);
   position: relative;
   border: none;
   cursor: pointer;
   padding: 0;
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.10);
   transition: transform var(--t), box-shadow var(--t);
 }
 .brand-mark:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(220,77,68,0.40);
+  box-shadow:
+    inset 0 -1px 0 rgba(0,0,0,0.10),
+    0 8px 22px rgba(220,77,68,0.45);
 }
 .brand-mark:active { transform: translateY(0); }
 .brand-mark::after {
