@@ -35,22 +35,30 @@
       />
     </div>
 
-    <div v-if="result" class="result">
-      <el-alert
-        :type="result.kind==='ddl'||result.kind==='dml'?'success':'info'"
-        :title="`${result.kind} · ${result.elapsed_ms}ms · ${result.row_count ?? result.affected_rows ?? 0} 行`"
-        :closable="false"
-      />
-      <el-table v-if="result.rows" :data="tableRows" size="small" border max-height="400" style="margin-top:12px">
-        <el-table-column v-for="c in result.columns" :key="c" :prop="c" :label="c" />
-      </el-table>
+    <div ref="resultBox" class="result-box">
+      <div v-if="busy" class="placeholder">
+        <span class="dot"></span> 执行中…
+      </div>
+      <template v-else-if="result">
+        <el-alert
+          :type="result.kind==='ddl'||result.kind==='dml'?'success':'info'"
+          :title="`${result.kind} · ${result.elapsed_ms}ms · ${result.row_count ?? result.affected_rows ?? 0} 行`"
+          :closable="false"
+        />
+        <el-table v-if="result.rows" :data="tableRows" size="small" border max-height="400" style="margin-top:12px">
+          <el-table-column v-for="c in result.columns" :key="c" :prop="c" :label="c" />
+        </el-table>
+      </template>
+      <el-alert v-else-if="error" type="error" :title="error" :closable="false" />
+      <div v-else class="placeholder">
+        点击上方预设按钮或编辑 SQL 后按「执行 RUN」，结果将在此显示。
+      </div>
     </div>
-    <el-alert v-if="error" type="error" :title="error" style="margin-top:12px" :closable="false" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
 import client from '../api/client'
 
@@ -58,6 +66,7 @@ const sql = ref('SELECT id, canonical_name, mention_count FROM entities ORDER BY
 const result = ref<any>(null)
 const error = ref('')
 const busy = ref(false)
+const resultBox = ref<HTMLElement>()
 
 const editorOptions = {
   minimap: { enabled: false },
@@ -76,7 +85,11 @@ async function run(q: string) {
   busy.value = true; error.value = ''; result.value = null
   try { result.value = (await client.post('/dev/sql/execute', { sql: q })).data }
   catch (e: any) { error.value = e.response?.data?.detail || String(e) }
-  finally { busy.value = false }
+  finally {
+    busy.value = false
+    await nextTick()
+    resultBox.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 }
 
 const tableRows = computed(() => {
@@ -127,5 +140,28 @@ const tableRows = computed(() => {
   background: #1e1e1e;
 }
 
-.result { display: flex; flex-direction: column; }
+.result-box {
+  min-height: 120px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--canvas);
+}
+.placeholder {
+  color: var(--ink-4);
+  font-size: 13px;
+  text-align: center;
+  padding: var(--s-5);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.placeholder .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--purple);
+  animation: pulse 1.2s infinite ease;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
 </style>
