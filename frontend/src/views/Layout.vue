@@ -2,9 +2,9 @@
   <el-container class="app">
     <el-aside width="240px" class="aside">
       <div class="brand">
-        <div class="brand-mark">
-          <span class="mark-glyph">M</span>
-        </div>
+        <button class="brand-mark" @click="openCfg" type="button" :title="brandTitle">
+          <span class="mark-glyph">{{ modelLetter }}</span>
+        </button>
         <div class="brand-text">
           <div class="brand-name">NKG</div>
           <div class="brand-sub">Knowledge Graph</div>
@@ -62,19 +62,61 @@
       </el-header>
       <el-main class="main"><router-view /></el-main>
     </el-container>
+    <LlmConfigDialog v-model="cfgOpen" />
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
+import client from '../api/client'
+import LlmConfigDialog from '../components/LlmConfigDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
 const initial = computed(() => (auth.user?.username || '?').charAt(0).toUpperCase())
+
+const cfgOpen = ref(false)
+const currentModel = ref('')
+const modelLetter = computed(() => {
+  // First letter of provider/model name (M for MiniMax, future: D for DeepSeek, G for Gemini, O for OpenAI)
+  return (currentModel.value || 'minimax').charAt(0).toUpperCase()
+})
+const brandTitle = computed(() =>
+  auth.user?.role === 'admin'
+    ? '点击配置 LLM'
+    : '当前模型: MiniMax · 仅 admin 可切换'
+)
+
+async function loadModel() {
+  if (auth.user?.role !== 'admin') {
+    currentModel.value = 'MiniMax'  // non-admin sees the letter but can't change
+    return
+  }
+  try {
+    const r = await client.get('/admin/llm-config')
+    currentModel.value = r.data.model
+  } catch {
+    currentModel.value = 'MiniMax'
+  }
+}
+
+function openCfg() {
+  if (auth.user?.role !== 'admin') {
+    ElMessage.info('仅 admin 可切换模型')
+    return
+  }
+  cfgOpen.value = true
+}
+
+onMounted(loadModel)
+
+// Re-load after dialog closes (so the letter reflects the new model immediately)
+watch(cfgOpen, (v) => { if (!v) loadModel() })
 
 const pageTitle = computed(() => {
   const p = route.path
@@ -119,7 +161,16 @@ function logout() { auth.logout(); router.push('/login') }
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-md);
   position: relative;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--t), box-shadow var(--t);
 }
+.brand-mark:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(140,125,239,0.40);
+}
+.brand-mark:active { transform: translateY(0); }
 .brand-mark::after {
   content: '';
   position: absolute; inset: 0;

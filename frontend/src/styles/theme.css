@@ -29,16 +29,16 @@
   --ink-on-dark-3: #86909C;
 
   /* MiniMax brand accents — purple is now PRIMARY, red kept for danger */
-  --red: #D01316;
-  --red-hover: #B30E11;
-  --red-soft: #FBE6E7;
-  --red-deep: #861014;
+  --red: #DC4D44;
+  --red-hover: #C73E36;
+  --red-soft: #FCE8E6;
+  --red-deep: #8B2620;
 
-  --purple: #6B6BFA;
-  --purple-hover: #5859E0;
+  --purple: #8C7DEF;
+  --purple-hover: #7367E5;
   --purple-light: #CAC9FF;
-  --purple-soft: #E6E6FF;
-  --purple-deep: #4848B8;
+  --purple-soft: #E8E5FF;
+  --purple-deep: #5A4ACF;
 
   --gold: #E8A93D;
   --gold-light: #FFD388;
@@ -74,8 +74,8 @@
   --shadow-sm: 0 1px 2px rgba(24, 30, 37, 0.04);
   --shadow: 0 4px 12px rgba(24, 30, 37, 0.06);
   --shadow-lg: 0 12px 32px rgba(24, 30, 37, 0.10);
-  --shadow-glow: 0 0 0 4px rgba(107, 107, 250, 0.14);
-  --shadow-glow-red: 0 0 0 4px rgba(208, 19, 22, 0.10);
+  --shadow-glow: 0 0 0 4px rgba(140, 125, 239, 0.14);
+  --shadow-glow-red: 0 0 0 4px rgba(220, 77, 68, 0.10);
   --shadow-glow-blue: 0 0 0 4px rgba(22, 93, 255, 0.10);
 
   /* Transitions — quicker, snappier than the warm theme */
@@ -203,7 +203,7 @@ a:hover { color: var(--purple-hover); }
 .el-button--primary:hover {
   background: var(--purple-hover) !important;
   border-color: var(--purple-hover) !important;
-  box-shadow: 0 4px 14px rgba(107,107,250,0.32) !important;
+  box-shadow: 0 4px 14px rgba(140,125,239,0.32) !important;
 }
 .el-button--default {
   background: var(--canvas);
@@ -397,7 +397,7 @@ a:hover { color: var(--purple-hover); }
   color: var(--ink-on-dark) !important;
 }
 .aside-menu .el-menu-item.is-active {
-  background: rgba(107, 107, 250, 0.14) !important;
+  background: rgba(140, 125, 239, 0.14) !important;
   color: var(--ink-on-dark) !important;
   position: relative;
 }
@@ -425,7 +425,7 @@ a:hover { color: var(--purple-hover); }
 .el-alert { border-radius: var(--r-md); border-width: 1px; }
 .el-alert--success.is-light { background: var(--success-soft); color: var(--success); border-color: rgba(0,180,42,0.2); }
 .el-alert--warning.is-light { background: var(--warning-soft); color: var(--warning); border-color: rgba(255,125,0,0.2); }
-.el-alert--error.is-light, .el-alert--danger.is-light { background: var(--red-soft); color: var(--red); border-color: rgba(208,19,22,0.2); }
+.el-alert--error.is-light, .el-alert--danger.is-light { background: var(--red-soft); color: var(--red); border-color: rgba(220,77,68,0.2); }
 .el-alert--info.is-light { background: var(--info-soft); color: var(--info); border-color: rgba(22,93,255,0.2); }
 
 /* Scrollbar (webkit) */

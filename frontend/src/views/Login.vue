@@ -112,7 +112,7 @@ async function onRegister() {
 .hero-bg {
   position: absolute; inset: 0;
   background:
-    radial-gradient(800px 500px at 80% 0%, rgba(107,107,250,0.20), transparent 60%),
+    radial-gradient(800px 500px at 80% 0%, rgba(140,125,239,0.20), transparent 60%),
     radial-gradient(600px 400px at 20% 100%, rgba(202,201,255,0.10), transparent 60%);
   pointer-events: none;
 }
@@ -134,7 +134,7 @@ async function onRegister() {
   font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
   border-radius: var(--r-md);
   margin-bottom: var(--s-5);
-  box-shadow: 0 8px 24px rgba(107,107,250,0.40);
+  box-shadow: 0 8px 24px rgba(140,125,239,0.40);
 }
 .hero-eyebrow {
   font-family: var(--font-mono);
@@ -179,7 +179,7 @@ async function onRegister() {
 .hero-tag.accent {
   border-color: var(--purple);
   color: var(--purple-light);
-  background: rgba(107,107,250,0.12);
+  background: rgba(140,125,239,0.12);
 }
 
 .form-wrap {
@@ -247,7 +247,7 @@ async function onRegister() {
 }
 .primary:hover:not(:disabled) {
   background: var(--purple-hover);
-  box-shadow: 0 6px 18px rgba(107,107,250,0.36);
+  box-shadow: 0 6px 18px rgba(140,125,239,0.36);
 }
 .primary:disabled { opacity: 0.55; cursor: not-allowed; }
 

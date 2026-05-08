@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 from openai import OpenAI
 from .config import settings
 
@@ -8,21 +8,23 @@ log = logging.getLogger(__name__)
 
 
 class LLMClient:
-    def __init__(self):
-        self.use_mock = settings.llm_mock or not settings.minimax_api_key
-        if not self.use_mock:
-            self.client = OpenAI(
-                api_key=settings.minimax_api_key,
-                base_url=settings.minimax_base_url,
-            )
+    """Lazily build OpenAI client on each call so runtime config changes take effect."""
+
+    def _is_mock(self) -> bool:
+        return settings.llm_mock or not settings.minimax_api_key
+
+    def _client(self) -> OpenAI:
+        return OpenAI(
+            api_key=settings.minimax_api_key,
+            base_url=settings.minimax_base_url,
+        )
 
     def chat_json(self, system: str, user: str, mock_fallback: dict) -> dict:
-        """Return JSON dict from LLM; on mock or failure, return mock_fallback."""
-        if self.use_mock:
+        if self._is_mock():
             log.info("LLM mock mode")
             return mock_fallback
         try:
-            resp = self.client.chat.completions.create(
+            resp = self._client().chat.completions.create(
                 model=settings.minimax_model,
                 messages=[
                     {"role": "system", "content": system},
@@ -41,8 +43,7 @@ class LLMClient:
 llm = LLMClient()
 
 
-# Helpers ----------------------------------------------------------
-
+# Helpers (unchanged signatures)
 COG_MAP_SYSTEM = """你是知识抽取助手。给定一段文档文本，输出 JSON：
 {
   "summary": "<200字摘要>",

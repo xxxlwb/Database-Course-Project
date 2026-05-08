@@ -18,8 +18,8 @@ class Settings(BaseSettings):
 
     # LLM
     minimax_api_key: str = ""
-    minimax_base_url: str = "https://api.minimaxi.com/v1"
-    minimax_model: str = "abab6.5s-chat"
+    minimax_base_url: str = "https://api.minimax.io/v1"
+    minimax_model: str = "MiniMax-M2"
     llm_mock: bool = True
 
     # RAG (reserved)

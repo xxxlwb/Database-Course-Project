@@ -33,14 +33,14 @@ const chartRef = ref()
 
 // MiniMax-aligned palette: purple brand + accents + state colors
 const TYPE_COLORS: Record<string,string> = {
-  person:    '#6B6BFA', // brand purple
+  person:    '#8C7DEF', // brand purple
   project:   '#00B42A', // success green
   task:      '#FF7D00', // warning orange
   concept:   '#CAC9FF', // light purple
   decision:  '#165DFF', // info blue
   event:     '#E8A93D', // gold
   place:     '#4E5969', // ink-3
-  other:     '#D01316', // accent red (rare, for distinction)
+  other:     '#DC4D44', // accent red (rare, for distinction)
 }
 
 const option = computed(() => ({
