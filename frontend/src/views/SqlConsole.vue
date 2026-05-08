@@ -25,40 +25,60 @@
       </div>
     </header>
 
-    <div class="editor-wrap">
-      <vue-monaco-editor
-        v-model:value="sql"
-        language="sql"
-        theme="vs-dark"
-        height="320px"
-        :options="editorOptions"
-      />
-    </div>
-
-    <div ref="resultBox" class="result-box">
-      <div v-if="busy" class="placeholder">
-        <span class="dot"></span> 执行中…
-      </div>
-      <template v-else-if="result">
-        <el-alert
-          :type="result.kind==='ddl'||result.kind==='dml'?'success':'info'"
-          :title="`${result.kind} · ${result.elapsed_ms}ms · ${result.row_count ?? result.affected_rows ?? 0} 行`"
-          :closable="false"
+    <div class="split">
+      <div class="editor-wrap">
+        <div class="panel-bar">
+          <span class="panel-title">编辑器 EDITOR</span>
+          <span class="panel-meta">{{ sql.length }} chars · MySQL</span>
+        </div>
+        <vue-monaco-editor
+          v-model:value="sql"
+          language="sql"
+          theme="vs-dark"
+          height="100%"
+          :options="editorOptions"
         />
-        <el-table v-if="result.rows" :data="tableRows" size="small" border max-height="400" style="margin-top:12px">
-          <el-table-column v-for="c in result.columns" :key="c" :prop="c" :label="c" />
-        </el-table>
-      </template>
-      <el-alert v-else-if="error" type="error" :title="error" :closable="false" />
-      <div v-else class="placeholder">
-        点击上方预设按钮或编辑 SQL 后按「执行 RUN」，结果将在此显示。
+      </div>
+
+      <div ref="resultBox" class="result-wrap">
+        <div class="panel-bar light">
+          <span class="panel-title">结果 RESULT</span>
+          <span v-if="result" class="panel-meta">
+            {{ result.kind }} · {{ result.elapsed_ms }}ms ·
+            {{ result.row_count ?? result.affected_rows ?? 0 }} 行
+          </span>
+        </div>
+        <div class="result-body">
+          <div v-if="busy" class="placeholder">
+            <span class="dot"></span> 执行中…
+          </div>
+          <template v-else-if="result">
+            <el-table v-if="result.rows" :data="tableRows" size="small" border height="100%">
+              <el-table-column v-for="c in result.columns" :key="c" :prop="c" :label="c" min-width="120" />
+            </el-table>
+            <el-alert
+              v-else
+              :type="result.kind==='ddl'||result.kind==='dml'?'success':'info'"
+              :title="`✓ ${result.kind} 执行成功，影响 ${result.affected_rows ?? 0} 行`"
+              :closable="false"
+            />
+          </template>
+          <el-alert v-else-if="error" type="error" :title="error" :closable="false" />
+          <div v-else class="placeholder muted">
+            <div>
+              <div class="placeholder-emoji">⌨</div>
+              <div>编辑左侧 SQL 后按「执行 RUN」</div>
+              <div class="placeholder-hint">或点击上方预设按钮快速查询</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
 import client from '../api/client'
 
@@ -85,11 +105,7 @@ async function run(q: string) {
   busy.value = true; error.value = ''; result.value = null
   try { result.value = (await client.post('/dev/sql/execute', { sql: q })).data }
   catch (e: any) { error.value = e.response?.data?.detail || String(e) }
-  finally {
-    busy.value = false
-    await nextTick()
-    resultBox.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
+  finally { busy.value = false }
 }
 
 const tableRows = computed(() => {
@@ -101,7 +117,7 @@ const tableRows = computed(() => {
 </script>
 
 <style scoped>
-.sql-console { display: flex; flex-direction: column; gap: var(--s-4); }
+.sql-console { display: flex; flex-direction: column; gap: var(--s-4); height: calc(100vh - 160px); min-height: 540px; }
 
 .toolbar { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; }
 
@@ -132,29 +148,78 @@ const tableRows = computed(() => {
   letter-spacing: 0.04em;
 }
 
-.editor-wrap {
+/* Split view: editor LEFT, result RIGHT, equal columns, fill remaining height */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s-4);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Shared panel chrome (title bar + body) */
+.editor-wrap, .result-wrap {
+  display: flex; flex-direction: column;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
   overflow: hidden;
-  min-height: 320px;
-  background: #1e1e1e;
+  min-height: 0;
+}
+.editor-wrap { background: #1e1e1e; }
+.result-wrap { background: var(--canvas); }
+
+.panel-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  background: #2D3540;
+  border-bottom: 1px solid #1A2028;
+  flex-shrink: 0;
+}
+.panel-bar.light {
+  background: var(--surface);
+  border-bottom-color: var(--border);
+}
+.panel-title {
+  font-size: 12px; font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 0.04em;
+}
+.panel-bar.light .panel-title { color: var(--ink); }
+.panel-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: 0.04em;
+}
+.panel-bar.light .panel-meta { color: var(--ink-3); }
+
+/* Editor wrap holds Monaco directly; ensure it stretches */
+.editor-wrap :deep(.monaco-editor),
+.editor-wrap :deep(.monaco-editor .overflow-guard) {
+  flex: 1;
+  height: 100% !important;
 }
 
-.result-box {
-  min-height: 120px;
-  display: flex; flex-direction: column; gap: 8px;
-  padding: var(--s-4);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--canvas);
+.result-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--s-3);
+  display: flex; flex-direction: column;
 }
+.result-body :deep(.el-table) { flex: 1; }
+
 .placeholder {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
   color: var(--ink-4);
   font-size: 13px;
   text-align: center;
-  padding: var(--s-5);
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  gap: 8px;
 }
+.placeholder.muted { color: var(--ink-4); }
+.placeholder-emoji { font-size: 32px; margin-bottom: 8px; opacity: 0.55; }
+.placeholder-hint { font-size: 11.5px; color: var(--ink-5); margin-top: 4px; font-family: var(--font-mono); }
 .placeholder .dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--purple);
@@ -163,5 +228,12 @@ const tableRows = computed(() => {
 @keyframes pulse {
   0%, 100% { opacity: 0.3; transform: scale(0.85); }
   50%      { opacity: 1;   transform: scale(1.1); }
+}
+
+/* Stack vertically on narrow screens */
+@media (max-width: 1100px) {
+  .sql-console { height: auto; }
+  .split { grid-template-columns: 1fr; }
+  .editor-wrap, .result-wrap { min-height: 360px; }
 }
 </style>
