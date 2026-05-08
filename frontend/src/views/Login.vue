@@ -104,62 +104,70 @@ async function onRegister() {
 
 .hero {
   position: relative;
-  background: var(--chrome);
+  /* Layered coral gradient — MiniMax M2-her hero vibe */
+  background:
+    radial-gradient(ellipse 60% 70% at 22% 28%, #FF8A7A 0%, transparent 55%),
+    radial-gradient(ellipse 55% 65% at 78% 72%, #8B2620 0%, transparent 55%),
+    radial-gradient(ellipse 90% 90% at 50% 50%, #DC4D44 0%, #B8362E 100%);
   display: flex; align-items: center; justify-content: center;
   padding: var(--s-7);
   overflow: hidden;
 }
 .hero-bg {
   position: absolute; inset: 0;
+  /* M2-her style overlapping translucent ovals */
   background:
-    radial-gradient(800px 500px at 80% 0%, rgba(140,125,239,0.20), transparent 60%),
-    radial-gradient(600px 400px at 20% 100%, rgba(202,201,255,0.10), transparent 60%);
+    radial-gradient(ellipse 380px 280px at 12% 12%, rgba(255,200,180,0.28), transparent 70%),
+    radial-gradient(ellipse 320px 220px at 90% 22%, rgba(255,150,130,0.22), transparent 70%),
+    radial-gradient(ellipse 420px 320px at 78% 92%, rgba(70,15,15,0.32), transparent 70%),
+    radial-gradient(ellipse 280px 200px at 35% 88%, rgba(255,110,90,0.18), transparent 70%);
   pointer-events: none;
 }
 .hero-grid {
   position: absolute; inset: 0;
   background-image:
-    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
   background-size: 32px 32px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black, transparent);
+  mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, black, transparent);
   pointer-events: none;
 }
 .hero-content { position: relative; z-index: 1; max-width: 480px; }
 .hero-mark {
   display: inline-flex; align-items: center; justify-content: center;
   width: 52px; height: 52px;
-  background: var(--purple);
-  color: white;
+  background: white;
+  color: var(--red);
   font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
   border-radius: var(--r-md);
   margin-bottom: var(--s-5);
-  box-shadow: 0 8px 24px rgba(140,125,239,0.40);
+  box-shadow: 0 8px 24px rgba(70,15,15,0.40), inset 0 -1px 0 rgba(0,0,0,0.06);
 }
 .hero-eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.18em;
-  color: var(--ink-on-dark-3);
+  color: rgba(255,255,255,0.78);
   margin-bottom: var(--s-3);
 }
 .hero-title {
-  color: var(--ink-on-dark);
+  color: white;
   font-size: 44px;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.025em;
   margin: 0 0 var(--s-5);
+  text-shadow: 0 2px 12px rgba(70,15,15,0.30);
 }
-.hero-title .accent { color: var(--purple-light); position: relative; }
+.hero-title .accent { color: #FFE4A8; position: relative; }
 .hero-title .accent::after {
   content: '';
   position: absolute; left: 0; right: 0; bottom: -4px;
-  height: 3px; background: var(--purple); border-radius: 2px;
-  opacity: 0.7;
+  height: 3px; background: #FFD27D; border-radius: 2px;
+  opacity: 0.85;
 }
 .hero-desc {
-  color: var(--ink-on-dark-2);
+  color: rgba(255,255,255,0.88);
   font-size: 15px;
   line-height: 1.7;
   margin: 0 0 var(--s-6);
@@ -171,15 +179,16 @@ async function onRegister() {
   font-size: 11px;
   letter-spacing: 0.04em;
   padding: 4px 10px;
-  border: 1px solid var(--chrome-3);
+  border: 1px solid rgba(255,255,255,0.30);
   border-radius: var(--r-sm);
-  color: var(--ink-on-dark-2);
-  background: rgba(255,255,255,0.02);
+  color: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(4px);
 }
 .hero-tag.accent {
-  border-color: var(--purple);
-  color: var(--purple-light);
-  background: rgba(140,125,239,0.12);
+  border-color: #FFD27D;
+  color: #FFE4A8;
+  background: rgba(255,210,125,0.14);
 }
 
 .form-wrap {
