@@ -1,19 +1,24 @@
 <template>
   <div>
-    <div class="bar">
-      <h2>主题管理</h2>
-      <el-button type="primary" @click="openCreate">+ 新建主题</el-button>
-    </div>
+    <header class="page-head with-action">
+      <div class="head-text">
+        <h1>主题空间</h1>
+        <p class="lead">在此管理你的主题空间,每个主题汇集相关文档与图谱。</p>
+      </div>
+      <div class="head-action">
+        <el-button type="primary" @click="openCreate">+ 新建主题</el-button>
+      </div>
+    </header>
     <el-table :data="rows" border>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="名称" width="220" />
       <el-table-column prop="description" label="描述" />
       <el-table-column prop="doc_count" label="文档数" width="80" />
-      <el-table-column prop="blueprint_status" label="蓝图状态" width="100">
+      <el-table-column prop="blueprint_status" label="蓝图状态" width="120">
         <template #default="{row}">
-          <el-tag :type="row.blueprint_status==='ready'?'success':'info'">
+          <span :class="['status-pill', row.blueprint_status==='ready'?'s-completed':'s-pending']">
             {{ row.blueprint_status }}
-          </el-tag>
+          </span>
         </template>
       </el-table-column>
       <el-table-column prop="is_archived" label="归档" width="80">
@@ -21,7 +26,7 @@
           <el-tag v-if="row.is_archived" type="warning">已归档</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="240">
+      <el-table-column label="操作" width="280">
         <template #default="{row}">
           <el-button size="small" @click="$router.push(`/topics/${row.id}`)">详情</el-button>
           <el-button size="small" @click="$router.push(`/topics/${row.id}/graph`)">图谱</el-button>
@@ -82,5 +87,3 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
-
-<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>

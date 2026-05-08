@@ -1,16 +1,23 @@
 <template>
   <div>
-    <div class="bar">
-      <h2>实体管理</h2>
-      <div>
-        <el-input v-model="q" placeholder="搜索实体名" style="width:200px" @input="load" />
-        <el-button type="primary" @click="mergeDlg=true" style="margin-left:8px">⚙ 合并实体</el-button>
+    <header class="page-head with-action">
+      <div class="head-text">
+        <h1>实体</h1>
+        <p class="lead">图谱中的核心节点。支持别名管理与跨实体合并。</p>
       </div>
-    </div>
+      <div class="head-action toolbar">
+        <el-input v-model="q" placeholder="搜索实体名" style="width:220px" @input="load" />
+        <el-button type="primary" @click="mergeDlg=true">⚙ 合并实体</el-button>
+      </div>
+    </header>
     <el-table :data="rows" border>
-      <el-table-column prop="id" width="60" />
+      <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="canonical_name" label="名称" />
-      <el-table-column prop="entity_type" label="类型" width="100" />
+      <el-table-column prop="entity_type" label="类型" width="120">
+        <template #default="{row}">
+          <el-tag>{{ row.entity_type }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="topic_id" label="Topic" width="80" />
       <el-table-column prop="mention_count" label="提及" width="80" />
       <el-table-column prop="description" label="描述" />
@@ -25,8 +32,15 @@
     <EntityMergeDialog v-model="mergeDlg" :entities="rows" @merged="load" />
 
     <el-dialog v-model="aliasDlg" title="别名">
-      <el-table :data="aliases" size="small"><el-table-column prop="alias" /><el-table-column prop="source" width="100" /><el-table-column prop="confidence" width="100" /></el-table>
-      <el-input v-model="newAlias" placeholder="添加别名" /><el-button @click="addAlias">添加</el-button>
+      <el-table :data="aliases" size="small">
+        <el-table-column prop="alias" label="别名" />
+        <el-table-column prop="source" label="来源" width="100" />
+        <el-table-column prop="confidence" label="置信度" width="100" />
+      </el-table>
+      <div class="alias-add">
+        <el-input v-model="newAlias" placeholder="添加别名" />
+        <el-button type="primary" @click="addAlias">添加</el-button>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -51,4 +65,7 @@ async function del(row: any) { await ElMessageBox.confirm('确认删除？'); aw
 
 onMounted(load)
 </script>
-<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>
+<style scoped>
+.toolbar { display: flex; gap: var(--space-3); align-items: center; }
+.alias-add { display: flex; gap: var(--space-3); margin-top: var(--space-4); }
+</style>

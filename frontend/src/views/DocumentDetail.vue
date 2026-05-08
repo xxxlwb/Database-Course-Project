@@ -1,6 +1,13 @@
 <template>
   <div v-if="doc">
-    <h2>{{ doc.title }} <el-tag size="small">{{ doc.status }}</el-tag></h2>
+    <header class="page-head">
+      <h1>{{ doc.title }}
+        <span :class="['status-pill', `s-${doc.status}`]" style="margin-left:8px;vertical-align:middle">
+          {{ doc.status }}
+        </span>
+      </h1>
+      <p class="lead">文档详情:查看原文、切块结果与 LLM 生成的认知地图。</p>
+    </header>
     <el-tabs>
       <el-tab-pane label="原文">
         <pre style="white-space:pre-wrap">{{ doc.content }}</pre>
@@ -14,7 +21,7 @@
       </el-tab-pane>
       <el-tab-pane label="认知地图">
         <el-button v-if="!cogmap" type="primary" @click="genCog">生成认知地图</el-button>
-        <pre v-if="cogmap">{{ JSON.stringify(cogmap, null, 2) }}</pre>
+        <pre v-if="cogmap" style="margin-top:12px">{{ JSON.stringify(cogmap, null, 2) }}</pre>
       </el-tab-pane>
     </el-tabs>
   </div>

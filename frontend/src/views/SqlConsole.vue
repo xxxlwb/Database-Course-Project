@@ -1,23 +1,28 @@
 <template>
   <div class="sql-console">
-    <div class="bar">
-      <h2>SQL 控制台</h2>
-      <div>
+    <header class="page-head with-action">
+      <div class="head-text">
+        <h1>SQL 控制台</h1>
+        <p class="lead">面向管理员的通用执行台。所有语句都会写入审计日志。</p>
+      </div>
+      <div class="head-action toolbar">
         <el-button @click="run('SHOW TABLES')">SHOW TABLES</el-button>
         <el-button @click="run('SHOW PROCEDURE STATUS WHERE Db = DATABASE()')">SHOW PROCEDURES</el-button>
         <el-button @click="run('SHOW TRIGGERS')">SHOW TRIGGERS</el-button>
         <el-button type="primary" @click="execute" :loading="busy">▶ 执行</el-button>
       </div>
+    </header>
+    <div class="editor-wrap">
+      <vue-monaco-editor v-model:value="sql" language="sql" theme="vs-dark" :height="240" />
     </div>
-    <vue-monaco-editor v-model:value="sql" language="sql" theme="vs-dark" :height="200" />
     <div v-if="result" class="result">
       <el-alert :type="result.kind==='ddl'||result.kind==='dml'?'success':'info'"
                 :title="`${result.kind} · ${result.elapsed_ms}ms · ${result.row_count ?? result.affected_rows ?? 0} 行`" />
-      <el-table v-if="result.rows" :data="tableRows" size="small" border max-height="400" style="margin-top:8px">
+      <el-table v-if="result.rows" :data="tableRows" size="small" border max-height="400" style="margin-top:12px">
         <el-table-column v-for="c in result.columns" :key="c" :prop="c" :label="c" />
       </el-table>
     </div>
-    <el-alert v-if="error" type="error" :title="error" style="margin-top:8px" />
+    <el-alert v-if="error" type="error" :title="error" style="margin-top:12px" />
   </div>
 </template>
 <script setup lang="ts">
@@ -40,5 +45,13 @@ const tableRows = computed(() => {
   return result.value.rows.map((r: any[]) => Object.fromEntries(result.value.columns.map((c: string, i: number) => [c, r[i]])))
 })
 </script>
-<style scoped>.sql-console { display: flex; flex-direction: column; gap: 8px; }
-.bar { display: flex; justify-content: space-between; align-items: center; }</style>
+<style scoped>
+.sql-console { display: flex; flex-direction: column; gap: var(--space-4); }
+.toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.editor-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.result { display: flex; flex-direction: column; }
+</style>

@@ -1,15 +1,24 @@
 <template>
   <div>
-    <div class="bar">
-      <h2>关系管理</h2>
-      <el-button type="primary" @click="dlg=true">+ 新建关系</el-button>
-    </div>
+    <header class="page-head with-action">
+      <div class="head-text">
+        <h1>关系</h1>
+        <p class="lead">实体之间的语义边。受触发器约束限制为同一主题内。</p>
+      </div>
+      <div class="head-action">
+        <el-button type="primary" @click="dlg=true">+ 新建关系</el-button>
+      </div>
+    </header>
     <el-table :data="rows" border>
-      <el-table-column prop="id" width="60" />
+      <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="topic_id" label="Topic" width="80" />
       <el-table-column prop="source_entity_id" label="源" width="80" />
       <el-table-column prop="target_entity_id" label="目标" width="80" />
-      <el-table-column prop="relation_type" label="类型" width="120" />
+      <el-table-column prop="relation_type" label="类型" width="140">
+        <template #default="{row}">
+          <el-tag>{{ row.relation_type }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="description" label="描述" />
       <el-table-column label="操作" width="100">
         <template #default="{row}">
@@ -53,4 +62,3 @@ async function del(row: any) { await ElMessageBox.confirm('确认删除？'); aw
 
 onMounted(load)
 </script>
-<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>

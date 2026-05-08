@@ -1,14 +1,23 @@
 <template>
   <div>
-    <div class="bar">
-      <h2>文档管理</h2>
-      <el-button type="primary" @click="dlg=true">+ 上传文档</el-button>
-    </div>
+    <header class="page-head with-action">
+      <div class="head-text">
+        <h1>文档库</h1>
+        <p class="lead">上传、切块、生成认知地图与抽取实体的源头。</p>
+      </div>
+      <div class="head-action">
+        <el-button type="primary" @click="dlg=true">+ 上传文档</el-button>
+      </div>
+    </header>
     <el-table :data="rows" border>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="title" label="标题" />
       <el-table-column prop="topic_id" label="Topic" width="80" />
-      <el-table-column prop="status" label="状态" width="120" />
+      <el-table-column prop="status" label="状态" width="120">
+        <template #default="{row}">
+          <span :class="['status-pill', `s-${row.status}`]">{{ row.status }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="chunks_count" label="块数" width="80" />
       <el-table-column label="操作" width="180">
         <template #default="{row}">
@@ -63,4 +72,3 @@ async function del(row: any) {
 
 onMounted(load)
 </script>
-<style scoped>.bar { display: flex; justify-content: space-between; align-items: center; }</style>
