@@ -1,7 +1,28 @@
 <template>
   <div class="login-page">
     <div class="hero">
-      <div class="hero-bg"></div>
+      <!-- Decorative SVG layer: M2-her style overlapping shapes + yellow balloon -->
+      <svg class="hero-art" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <!-- soft cream overlapping ovals (top) -->
+        <ellipse cx="120" cy="-40" rx="280" ry="200" fill="#FFD7C5" opacity="0.18"/>
+        <ellipse cx="520" cy="80"  rx="240" ry="180" fill="#FF8A6E" opacity="0.22"/>
+        <!-- big translucent center swirl -->
+        <circle cx="200" cy="380" r="240" fill="#FF7A66" opacity="0.16"/>
+        <circle cx="450" cy="420" r="280" fill="#7A1F1A" opacity="0.30"/>
+        <circle cx="320" cy="500" r="180" fill="#FFB7A0" opacity="0.14"/>
+        <!-- bottom dark anchor -->
+        <ellipse cx="180" cy="780" rx="320" ry="180" fill="#5A140F" opacity="0.40"/>
+        <ellipse cx="540" cy="820" rx="260" ry="160" fill="#3A0B08" opacity="0.30"/>
+        <!-- gold balloon accent (M2-her signature element) -->
+        <line x1="475" y1="120" x2="510" y2="60" stroke="#FFD27D" stroke-width="2" opacity="0.85"/>
+        <circle cx="510" cy="58" r="6" fill="#FFD27D"/>
+        <!-- cream curve sweep -->
+        <path d="M -40 600 Q 180 540 380 620 T 700 580" stroke="#FFE6CC" stroke-width="1.5" fill="none" opacity="0.45"/>
+        <!-- small dot cluster -->
+        <circle cx="80"  cy="700" r="3" fill="#FFE6CC" opacity="0.7"/>
+        <circle cx="100" cy="720" r="2" fill="#FFE6CC" opacity="0.5"/>
+        <circle cx="60"  cy="730" r="2" fill="#FFE6CC" opacity="0.6"/>
+      </svg>
       <div class="hero-grid"></div>
       <div class="hero-content">
         <div class="hero-mark">M</div>
@@ -12,10 +33,10 @@
           可视化、可合并、可追溯,每一次写入都被审计。
         </p>
         <div class="hero-tags">
-          <span class="hero-tag">MySQL 8</span>
-          <span class="hero-tag">FastAPI</span>
-          <span class="hero-tag">Vue 3</span>
-          <span class="hero-tag accent">MiniMax</span>
+          <span class="hero-tag t-mysql"><span class="dot"></span>MySQL 8</span>
+          <span class="hero-tag t-api"><span class="dot"></span>FastAPI</span>
+          <span class="hero-tag t-vue"><span class="dot"></span>Vue 3</span>
+          <span class="hero-tag t-mm"><span class="dot"></span>MiniMax</span>
         </div>
       </div>
     </div>
@@ -104,33 +125,30 @@ async function onRegister() {
 
 .hero {
   position: relative;
-  /* Layered coral gradient — MiniMax M2-her hero vibe */
+  /* Deeper coral-to-burgundy base — leaves room for decorative SVG to pop */
   background:
-    radial-gradient(ellipse 60% 70% at 22% 28%, #FF8A7A 0%, transparent 55%),
-    radial-gradient(ellipse 55% 65% at 78% 72%, #8B2620 0%, transparent 55%),
-    radial-gradient(ellipse 90% 90% at 50% 50%, #DC4D44 0%, #B8362E 100%);
+    radial-gradient(ellipse 80% 70% at 30% 20%, #E0584C 0%, transparent 60%),
+    radial-gradient(ellipse 60% 70% at 70% 90%, #5A140F 0%, transparent 60%),
+    linear-gradient(160deg, #C73E36 0%, #8B2620 100%);
   display: flex; align-items: center; justify-content: center;
   padding: var(--s-7);
   overflow: hidden;
 }
-.hero-bg {
+.hero-art {
   position: absolute; inset: 0;
-  /* M2-her style overlapping translucent ovals */
-  background:
-    radial-gradient(ellipse 380px 280px at 12% 12%, rgba(255,200,180,0.28), transparent 70%),
-    radial-gradient(ellipse 320px 220px at 90% 22%, rgba(255,150,130,0.22), transparent 70%),
-    radial-gradient(ellipse 420px 320px at 78% 92%, rgba(70,15,15,0.32), transparent 70%),
-    radial-gradient(ellipse 280px 200px at 35% 88%, rgba(255,110,90,0.18), transparent 70%);
+  width: 100%; height: 100%;
   pointer-events: none;
+  z-index: 0;
 }
 .hero-grid {
   position: absolute; inset: 0;
   background-image:
-    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+    linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
   background-size: 32px 32px;
-  mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, black, transparent);
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black, transparent);
   pointer-events: none;
+  z-index: 0;
 }
 .hero-content { position: relative; z-index: 1; max-width: 480px; }
 .hero-mark {
@@ -141,7 +159,7 @@ async function onRegister() {
   font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
   border-radius: var(--r-md);
   margin-bottom: var(--s-5);
-  box-shadow: 0 8px 24px rgba(70,15,15,0.40), inset 0 -1px 0 rgba(0,0,0,0.06);
+  box-shadow: 0 8px 24px rgba(70,15,15,0.45), inset 0 -2px 0 rgba(0,0,0,0.06);
 }
 .hero-eyebrow {
   font-family: var(--font-mono);
@@ -157,7 +175,7 @@ async function onRegister() {
   line-height: 1.15;
   letter-spacing: -0.025em;
   margin: 0 0 var(--s-5);
-  text-shadow: 0 2px 12px rgba(70,15,15,0.30);
+  text-shadow: 0 2px 16px rgba(70,15,15,0.40);
 }
 .hero-title .accent { color: #FFE4A8; position: relative; }
 .hero-title .accent::after {
@@ -167,29 +185,82 @@ async function onRegister() {
   opacity: 0.85;
 }
 .hero-desc {
-  color: rgba(255,255,255,0.88);
+  color: rgba(255,255,255,0.92);
   font-size: 15px;
   line-height: 1.7;
   margin: 0 0 var(--s-6);
   max-width: 420px;
 }
+
+/* Tags: hover micro-interaction with per-tech accent color */
 .hero-tags { display: flex; gap: var(--s-2); flex-wrap: wrap; }
 .hero-tag {
+  display: inline-flex; align-items: center; gap: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
+  font-weight: 500;
   letter-spacing: 0.04em;
-  padding: 4px 10px;
+  padding: 5px 11px 5px 9px;
   border: 1px solid rgba(255,255,255,0.30);
   border-radius: var(--r-sm);
   color: rgba(255,255,255,0.85);
   background: rgba(255,255,255,0.06);
   backdrop-filter: blur(4px);
+  cursor: default;
+  transition:
+    background var(--t),
+    border-color var(--t),
+    color var(--t),
+    transform var(--t),
+    box-shadow var(--t);
 }
-.hero-tag.accent {
+.hero-tag .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,0.55);
+  transition: background var(--t), box-shadow var(--t), transform var(--t);
+}
+
+/* Per-tech hover accents */
+.hero-tag.t-mysql:hover {
+  background: rgba(0,117,143,0.22);
+  border-color: #00758F;
+  color: #B8E5EE;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0,117,143,0.35);
+}
+.hero-tag.t-mysql:hover .dot { background: #00758F; box-shadow: 0 0 0 4px rgba(0,117,143,0.30); }
+
+.hero-tag.t-api:hover {
+  background: rgba(0,150,136,0.22);
+  border-color: #009688;
+  color: #9FE5DD;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0,150,136,0.35);
+}
+.hero-tag.t-api:hover .dot { background: #009688; box-shadow: 0 0 0 4px rgba(0,150,136,0.30); }
+
+.hero-tag.t-vue:hover {
+  background: rgba(65,184,131,0.22);
+  border-color: #41B883;
+  color: #B5E6CE;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(65,184,131,0.35);
+}
+.hero-tag.t-vue:hover .dot { background: #41B883; box-shadow: 0 0 0 4px rgba(65,184,131,0.30); }
+
+.hero-tag.t-mm {
   border-color: #FFD27D;
   color: #FFE4A8;
   background: rgba(255,210,125,0.14);
 }
+.hero-tag.t-mm .dot { background: #FFD27D; }
+.hero-tag.t-mm:hover {
+  background: rgba(255,210,125,0.26);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(255,210,125,0.45);
+}
+.hero-tag.t-mm:hover .dot { box-shadow: 0 0 0 4px rgba(255,210,125,0.40); transform: scale(1.15); }
 
 .form-wrap {
   display: flex; align-items: center; justify-content: center;
