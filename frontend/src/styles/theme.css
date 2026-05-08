@@ -44,6 +44,14 @@
   --gold-light: #FFD388;
   --gold-soft: #FFF3DC;
 
+  /* Extra MiniMax product palette (Agent 蓝 / 海螺 粉) */
+  --blue: #4A6FA5;          /* MiniMax Agent 深蓝 */
+  --blue-light: #7FB1DA;    /* MiniMax Agent 中蓝 */
+  --blue-soft: #DCE9F4;
+  --pink: #E54998;          /* 海螺视频 主粉 */
+  --pink-light: #F6BAD2;
+  --pink-soft: #F9D8E5;
+
   /* State (Element Plus compatible) */
   --success: #00B42A;
   --success-soft: #E8F8EC;

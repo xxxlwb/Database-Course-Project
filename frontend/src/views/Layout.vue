@@ -157,7 +157,7 @@ function logout() { auth.logout(); router.push('/login') }
 }
 .brand-mark {
   width: 38px; height: 38px;
-  background: var(--purple);
+  background: var(--red);
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-md);
   position: relative;
@@ -168,7 +168,7 @@ function logout() { auth.logout(); router.push('/login') }
 }
 .brand-mark:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(140,125,239,0.40);
+  box-shadow: 0 6px 16px rgba(220,77,68,0.40);
 }
 .brand-mark:active { transform: translateY(0); }
 .brand-mark::after {
