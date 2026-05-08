@@ -15,7 +15,7 @@
         <button class="preset" @click="run('SHOW TRIGGERS')">
           <span class="zh">触发器</span><span class="en">SHOW TRIGGERS</span>
         </button>
-        <button class="preset" @click="run('SHOW FULL TABLES WHERE Table_type = \\'VIEW\\'')">
+        <button class="preset" @click="run(`SHOW FULL TABLES WHERE Table_type = 'VIEW'`)">
           <span class="zh">视图</span><span class="en">SHOW VIEWS</span>
         </button>
         <button class="preset" @click="run('SHOW INDEX FROM entities')">
