@@ -31,16 +31,16 @@ const edges = ref<any[]>([])
 const topicName = ref('')
 const chartRef = ref()
 
-// MiniMax-aligned palette: red brand + accent purples/golds + state colors
+// MiniMax-aligned palette: purple brand + accents + state colors
 const TYPE_COLORS: Record<string,string> = {
-  person:    '#D01316', // brand red
-  project:   '#00B42A', // success
-  task:      '#FF7D00', // warning
-  concept:   '#6B6BFA', // purple
+  person:    '#6B6BFA', // brand purple
+  project:   '#00B42A', // success green
+  task:      '#FF7D00', // warning orange
+  concept:   '#CAC9FF', // light purple
   decision:  '#165DFF', // info blue
   event:     '#E8A93D', // gold
   place:     '#4E5969', // ink-3
-  other:     '#86909C', // ink-4
+  other:     '#D01316', // accent red (rare, for distinction)
 }
 
 const option = computed(() => ({

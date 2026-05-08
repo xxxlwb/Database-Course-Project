@@ -112,8 +112,8 @@ async function onRegister() {
 .hero-bg {
   position: absolute; inset: 0;
   background:
-    radial-gradient(800px 500px at 80% 0%, rgba(208,19,22,0.16), transparent 60%),
-    radial-gradient(600px 400px at 20% 100%, rgba(107,107,250,0.13), transparent 60%);
+    radial-gradient(800px 500px at 80% 0%, rgba(107,107,250,0.20), transparent 60%),
+    radial-gradient(600px 400px at 20% 100%, rgba(202,201,255,0.10), transparent 60%);
   pointer-events: none;
 }
 .hero-grid {
@@ -129,12 +129,12 @@ async function onRegister() {
 .hero-mark {
   display: inline-flex; align-items: center; justify-content: center;
   width: 52px; height: 52px;
-  background: var(--red);
+  background: var(--purple);
   color: white;
   font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
   border-radius: var(--r-md);
   margin-bottom: var(--s-5);
-  box-shadow: 0 8px 24px rgba(208,19,22,0.35);
+  box-shadow: 0 8px 24px rgba(107,107,250,0.40);
 }
 .hero-eyebrow {
   font-family: var(--font-mono);
@@ -151,12 +151,12 @@ async function onRegister() {
   letter-spacing: -0.025em;
   margin: 0 0 var(--s-5);
 }
-.hero-title .accent { color: var(--red); position: relative; }
+.hero-title .accent { color: var(--purple-light); position: relative; }
 .hero-title .accent::after {
   content: '';
   position: absolute; left: 0; right: 0; bottom: -4px;
-  height: 3px; background: var(--red); border-radius: 2px;
-  opacity: 0.5;
+  height: 3px; background: var(--purple); border-radius: 2px;
+  opacity: 0.7;
 }
 .hero-desc {
   color: var(--ink-on-dark-2);
@@ -177,9 +177,9 @@ async function onRegister() {
   background: rgba(255,255,255,0.02);
 }
 .hero-tag.accent {
-  border-color: var(--red);
-  color: var(--red);
-  background: rgba(208,19,22,0.08);
+  border-color: var(--purple);
+  color: var(--purple-light);
+  background: rgba(107,107,250,0.12);
 }
 
 .form-wrap {
@@ -203,7 +203,7 @@ async function onRegister() {
   margin-bottom: -1px;
 }
 .tab:hover { color: var(--ink); }
-.tab.active { color: var(--red); border-bottom-color: var(--red); }
+.tab.active { color: var(--purple); border-bottom-color: var(--purple); }
 
 .field { display: block; margin-bottom: var(--s-4); }
 .label {
@@ -227,16 +227,16 @@ async function onRegister() {
 .field input:hover { border-color: var(--ink-3); }
 .field input:focus {
   outline: none;
-  border-color: var(--red);
-  box-shadow: var(--shadow-glow-red);
+  border-color: var(--purple);
+  box-shadow: var(--shadow-glow);
 }
 
 .primary {
   width: 100%;
   padding: 11px 18px; height: 42px;
-  background: var(--red);
+  background: var(--purple);
   color: white;
-  border: 1px solid var(--red);
+  border: 1px solid var(--purple);
   border-radius: var(--r);
   font-family: var(--font);
   font-weight: 600; font-size: 14px;
@@ -246,8 +246,8 @@ async function onRegister() {
   letter-spacing: 0.01em;
 }
 .primary:hover:not(:disabled) {
-  background: var(--red-hover);
-  box-shadow: 0 6px 18px rgba(208,19,22,0.30);
+  background: var(--purple-hover);
+  box-shadow: 0 6px 18px rgba(107,107,250,0.36);
 }
 .primary:disabled { opacity: 0.55; cursor: not-allowed; }
 

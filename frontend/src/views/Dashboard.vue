@@ -99,10 +99,10 @@ onMounted(async () => {
 }
 .section-head h2 { margin: 0; }
 .view-all {
-  font-size: 13px; color: var(--red); text-decoration: none;
+  font-size: 13px; color: var(--purple); text-decoration: none;
   font-weight: 600; transition: color var(--t);
 }
-.view-all:hover { color: var(--red-hover); }
+.view-all:hover { color: var(--purple-hover); }
 
 .job-card {
   border: 1px solid var(--border);

@@ -115,7 +115,7 @@ function logout() { auth.logout(); router.push('/login') }
 }
 .brand-mark {
   width: 38px; height: 38px;
-  background: var(--red);
+  background: var(--purple);
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-md);
   position: relative;
@@ -165,7 +165,7 @@ function logout() { auth.logout(); router.push('/login') }
   transition: color var(--t);
 }
 .aside-menu :deep(.el-menu-item):hover .nav-glyph,
-.aside-menu :deep(.el-menu-item.is-active) .nav-glyph { color: var(--red); }
+.aside-menu :deep(.el-menu-item.is-active) .nav-glyph { color: var(--purple); }
 
 .aside-footer {
   padding: var(--s-4) var(--s-5) 0;
@@ -208,9 +208,9 @@ function logout() { auth.logout(); router.push('/login') }
 .user-role {
   font-size: 10.5px; font-weight: 600;
   letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--red);
+  color: var(--purple-deep);
   padding: 2px 6px;
-  background: var(--red-soft);
+  background: var(--purple-soft);
   border-radius: var(--r-sm);
 }
 
@@ -226,8 +226,8 @@ function logout() { auth.logout(); router.push('/login') }
   transition: all var(--t);
 }
 .logout:hover {
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--purple);
+  border-color: var(--purple);
   color: white;
 }
 
