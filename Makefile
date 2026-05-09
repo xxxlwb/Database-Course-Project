@@ -1,9 +1,28 @@
-.PHONY: help db-init db-drop db-reset backend frontend test perf-load demo-load \
+.PHONY: help db-init db-drop db-reset db-create db-ping backend frontend test perf-load demo-load \
         ensure-uv ensure-node ensure-mysql-client install-backend install-frontend doctor
 
 # Make sure newly-installed user-local tools (uv, npm globals) are findable
 # in every recipe's child shell, not just the login shell.
 export PATH := $(HOME)/.local/bin:$(PATH)
+
+# Auto-load .env (KEY=VALUE pairs, # comments OK) so DB_USER/DB_PASSWORD/etc.
+# are available as Make vars and exported to recipe shells.
+ifneq (,$(wildcard .env))
+  include .env
+  export
+endif
+
+# Defaults if .env didn't define them
+DB_HOST     ?= 127.0.0.1
+DB_PORT     ?= 3306
+DB_USER     ?= root
+DB_PASSWORD ?=
+DB_NAME     ?= nkg
+
+# Use MYSQL_PWD env var instead of -p flag: works with empty password
+# (no prompt) and keeps the password out of `ps` listings.
+MYSQL_CONN = MYSQL_PWD="$(DB_PASSWORD)" mysql -u $(DB_USER) -h $(DB_HOST) -P $(DB_PORT) $(DB_NAME)
+MYSQL_ADMIN = MYSQL_PWD="$(DB_PASSWORD)" mysql -u $(DB_USER) -h $(DB_HOST) -P $(DB_PORT)
 
 # ============================================================
 # Cross-platform helpers
@@ -132,19 +151,30 @@ test: install-backend
 # ------------------------------------------------------------
 
 db-init: ensure-mysql-client
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/01_schema.sql
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/02_indexes.sql
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/03_views.sql
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/04_triggers.sql
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/05_procedures.sql
+	$(MYSQL_CONN) < sql/01_schema.sql
+	$(MYSQL_CONN) < sql/02_indexes.sql
+	$(MYSQL_CONN) < sql/03_views.sql
+	$(MYSQL_CONN) < sql/04_triggers.sql
+	$(MYSQL_CONN) < sql/05_procedures.sql
 
 db-drop: ensure-mysql-client
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/00_drop_all.sql
+	$(MYSQL_CONN) < sql/00_drop_all.sql
 
 db-reset: db-drop db-init demo-load
 
 demo-load: ensure-mysql-client
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/06_seed.sql
+	$(MYSQL_CONN) < sql/06_seed.sql
 
 perf-load: ensure-mysql-client
-	mysql -u $${DB_USER} -p$${DB_PASSWORD} -h $${DB_HOST} -P $${DB_PORT} $${DB_NAME} < sql/07_seed_perf.sql
+	$(MYSQL_CONN) < sql/07_seed_perf.sql
+
+# Quick connection check + show effective config
+db-ping: ensure-mysql-client
+	@echo "DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) DB_USER=$(DB_USER) DB_NAME=$(DB_NAME)"
+	@$(MYSQL_ADMIN) -e "SELECT VERSION() AS mysql_version, DATABASE() AS db, USER() AS user;"
+
+# Create the database (if it doesn't exist) — for fresh cloud servers
+db-create: ensure-mysql-client
+	@echo "Creating database $(DB_NAME) (if not exists) ..."
+	$(MYSQL_ADMIN) -e "CREATE DATABASE IF NOT EXISTS $(DB_NAME) DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+	$(MYSQL_ADMIN) -e "SET GLOBAL log_bin_trust_function_creators = 1;" 2>/dev/null || echo "(skip log_bin_trust — non-fatal)"
