@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     db_user: str = "root"
     db_password: str = ""
     db_name: str = "nkg"
+    db_pool_size: int = 3      # idle connections kept open (default 10)
+    db_max_overflow: int = 2   # extra burst capacity (default 5)
 
     # JWT
     jwt_secret: str = "dev-secret-change-me"

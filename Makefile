@@ -1,4 +1,5 @@
-.PHONY: help db-init db-drop db-reset db-create db-ping backend frontend test perf-load demo-load \
+.PHONY: help db-init db-drop db-reset db-create db-ping backend backend-prod \
+        frontend frontend-build frontend-serve test perf-load demo-load \
         ensure-uv ensure-node ensure-mysql-client install-backend install-frontend doctor
 
 # Make sure newly-installed user-local tools (uv, npm globals) are findable
@@ -125,6 +126,10 @@ install-backend: ensure-uv
 backend: install-backend
 	cd backend && uv run uvicorn app.main:app --reload --port 8000
 
+# Production-style: no --reload, no file watcher (saves ~100-150 MB on small servers)
+backend-prod: install-backend
+	cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --no-server-header --proxy-headers
+
 # ------------------------------------------------------------
 # Frontend
 # ------------------------------------------------------------
@@ -138,6 +143,18 @@ install-frontend: ensure-node
 
 frontend: install-frontend
 	cd frontend && npm run dev
+
+# Production-style: build → serve as static files (saves ~400-500 MB
+# vs running vite dev server). Requires the backend to be reachable
+# at the URL the API client uses (default: same host, /api → :8000)
+frontend-build: install-frontend
+	cd frontend && npm run build
+
+# Tiny static file server (uses ~10 MB RAM vs vite's ~500 MB).
+# Note: doesn't proxy /api → set up nginx for that, OR have the backend
+# CORS-allow your IP and hit the backend directly via absolute URL.
+frontend-serve: frontend-build
+	cd frontend/dist && python3 -m http.server 5173 --bind 0.0.0.0
 
 # ------------------------------------------------------------
 # Tests

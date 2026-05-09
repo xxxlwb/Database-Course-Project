@@ -1,0 +1,56 @@
+# MySQL 8 低内存配置 — 适用于 1-2GB 内存的小服务器
+#
+# 部署：
+#   sudo cp scripts/mysql-low-mem.cnf /etc/mysql/mysql.conf.d/99-low-mem.cnf
+#   sudo systemctl restart mysql
+#
+# 默认 MySQL 8 安装会用掉 ~500-700 MB；本配置控制在 ~150-220 MB。
+# 适合演示、个人服务器、教学环境，不适合生产高并发。
+
+[mysqld]
+# ============================================================
+# InnoDB buffer pool — 单项最大内存项,默认 128M
+# ============================================================
+innodb_buffer_pool_size = 96M
+innodb_buffer_pool_instances = 1
+innodb_log_buffer_size = 8M
+innodb_log_file_size = 32M
+
+# ============================================================
+# 连接数 — 每条连接 ~2-4 MB,默认 151 太多
+# ============================================================
+max_connections = 30
+thread_cache_size = 4
+table_open_cache = 200
+table_definition_cache = 200
+
+# ============================================================
+# 杂项 — 关掉/缩小不需要的特性
+# ============================================================
+key_buffer_size = 16M
+sort_buffer_size = 256K
+read_buffer_size = 256K
+read_rnd_buffer_size = 512K
+join_buffer_size = 256K
+tmp_table_size = 16M
+max_heap_table_size = 16M
+
+# 性能 schema 关掉 (省 ~80 MB,但失去诊断能力,根据需要权衡)
+performance_schema = OFF
+
+# 必须开 (创建函数/触发器时校验放开)
+log_bin_trust_function_creators = 1
+
+# 字符集 (避免乱码)
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+
+# 慢查询 (调试可用,生产记得关)
+# slow_query_log = 1
+# long_query_time = 2
+
+[client]
+default-character-set = utf8mb4
+
+[mysql]
+default-character-set = utf8mb4
