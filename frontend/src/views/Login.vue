@@ -3,25 +3,25 @@
     <div class="hero">
       <!-- Decorative SVG layer: M2-her style overlapping shapes + yellow balloon -->
       <svg class="hero-art" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <!-- soft cream overlapping ovals (top) -->
-        <ellipse cx="120" cy="-40" rx="280" ry="200" fill="#FFD7C5" opacity="0.18"/>
-        <ellipse cx="520" cy="80"  rx="240" ry="180" fill="#FF8A6E" opacity="0.22"/>
-        <!-- big translucent center swirl -->
-        <circle cx="200" cy="380" r="240" fill="#FF7A66" opacity="0.16"/>
-        <circle cx="450" cy="420" r="280" fill="#7A1F1A" opacity="0.30"/>
-        <circle cx="320" cy="500" r="180" fill="#FFB7A0" opacity="0.14"/>
-        <!-- bottom dark anchor -->
-        <ellipse cx="180" cy="780" rx="320" ry="180" fill="#5A140F" opacity="0.40"/>
-        <ellipse cx="540" cy="820" rx="260" ry="160" fill="#3A0B08" opacity="0.30"/>
+        <!-- bright cream overlapping ovals (top) -->
+        <ellipse cx="120" cy="-40" rx="280" ry="200" fill="#FFE0CC" opacity="0.30"/>
+        <ellipse cx="520" cy="80"  rx="240" ry="180" fill="#FFB59A" opacity="0.35"/>
+        <!-- big translucent center swirl — bright on bright -->
+        <circle cx="200" cy="380" r="240" fill="#FFC9B5" opacity="0.22"/>
+        <circle cx="450" cy="420" r="280" fill="#C73830" opacity="0.30"/>
+        <circle cx="320" cy="500" r="180" fill="#FFD4BD" opacity="0.20"/>
+        <!-- soft anchor at bottom (kept lighter) -->
+        <ellipse cx="180" cy="780" rx="320" ry="180" fill="#B82E26" opacity="0.32"/>
+        <ellipse cx="540" cy="820" rx="260" ry="160" fill="#9B231C" opacity="0.28"/>
         <!-- gold balloon accent (M2-her signature element) -->
-        <line x1="475" y1="120" x2="510" y2="60" stroke="#FFD27D" stroke-width="2" opacity="0.85"/>
-        <circle cx="510" cy="58" r="6" fill="#FFD27D"/>
+        <line x1="475" y1="120" x2="510" y2="60" stroke="#FFE08A" stroke-width="2.5" opacity="0.95"/>
+        <circle cx="510" cy="58" r="7" fill="#FFE08A"/>
         <!-- cream curve sweep -->
-        <path d="M -40 600 Q 180 540 380 620 T 700 580" stroke="#FFE6CC" stroke-width="1.5" fill="none" opacity="0.45"/>
+        <path d="M -40 600 Q 180 540 380 620 T 700 580" stroke="#FFEED8" stroke-width="2" fill="none" opacity="0.55"/>
         <!-- small dot cluster -->
-        <circle cx="80"  cy="700" r="3" fill="#FFE6CC" opacity="0.7"/>
-        <circle cx="100" cy="720" r="2" fill="#FFE6CC" opacity="0.5"/>
-        <circle cx="60"  cy="730" r="2" fill="#FFE6CC" opacity="0.6"/>
+        <circle cx="80"  cy="700" r="3" fill="#FFEED8" opacity="0.85"/>
+        <circle cx="100" cy="720" r="2" fill="#FFEED8" opacity="0.65"/>
+        <circle cx="60"  cy="730" r="2" fill="#FFEED8" opacity="0.75"/>
       </svg>
       <div class="hero-grid"></div>
       <div class="hero-content">
@@ -125,11 +125,11 @@ async function onRegister() {
 
 .hero {
   position: relative;
-  /* Deeper coral-to-burgundy base — leaves room for decorative SVG to pop */
+  /* Bright warm coral — true M2-her hero vibe */
   background:
-    radial-gradient(ellipse 80% 70% at 30% 20%, #E0584C 0%, transparent 60%),
-    radial-gradient(ellipse 60% 70% at 70% 90%, #5A140F 0%, transparent 60%),
-    linear-gradient(160deg, #C73E36 0%, #8B2620 100%);
+    radial-gradient(ellipse 90% 80% at 25% 22%, #FFA083 0%, transparent 60%),
+    radial-gradient(ellipse 70% 70% at 78% 80%, #E5544A 0%, transparent 55%),
+    linear-gradient(155deg, #FF7060 0%, #EE5147 55%, #D63E36 100%);
   display: flex; align-items: center; justify-content: center;
   padding: var(--s-7);
   overflow: hidden;
@@ -175,7 +175,7 @@ async function onRegister() {
   line-height: 1.15;
   letter-spacing: -0.025em;
   margin: 0 0 var(--s-5);
-  text-shadow: 0 2px 16px rgba(70,15,15,0.40);
+  text-shadow: 0 2px 12px rgba(120,30,25,0.25);
 }
 .hero-title .accent { color: #FFE4A8; position: relative; }
 .hero-title .accent::after {
